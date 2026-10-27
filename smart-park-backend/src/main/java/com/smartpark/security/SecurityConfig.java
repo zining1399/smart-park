@@ -23,16 +23,19 @@ import java.util.List;
  * 权限矩阵（URL 均为 context-path /api 之内路径）：
  * <pre>
  * /auth/login                 匿名；/actuator/health 匿名（探活，其余 actuator 端点不放行）
- * GET    /employees           ADMIN,GATE ；其他方法 /employees/**  ADMIN
- * GET    /vehicles            ADMIN,GATE ；其他方法 /vehicles/**   ADMIN
- * GET    /permissions         ADMIN,GATE ；POST/PUT                ADMIN,GATE ；DELETE        ADMIN
- * GET    /access-records      ADMIN,GATE ；POST /simulate          ADMIN,GATE
+ * GET    /employees/**        ADMIN,GATE（列表与明细同口径）；其他方法        ADMIN
+ * GET    /vehicles/**         ADMIN,GATE（列表与明细同口径）；其他方法        ADMIN
+ * GET    /permissions/**      ADMIN,GATE；POST/PUT  ADMIN,GATE；DELETE       ADMIN
+ * GET    /access-records/**   ADMIN,GATE；POST /simulate            ADMIN,GATE
  * /visitors/**                ADMIN,GATE（含 check-in / check-out）
- * /materials/**               ADMIN,STORE
- * GET    /stock-records       ADMIN,STORE；POST /in /out /return   ADMIN,STORE
+ * /materials/**               ADMIN,STORE（列表与明细同口径，门岗全挡）
+ * GET    /stock-records/**    ADMIN,STORE；POST /in /out /return    ADMIN,STORE
  * POST   /stock-records/{id}/approve                               ADMIN（审批权收归管理员）
  * /alarms/**  /dashboard/**   /auth/**    任意已登录角色
  * </pre>
+ * <b>路径一律用 `/**` 通配</b>：列表与明细在 Controller 里是同一类的两个方法，
+ * 只配列表路径（如 `/employees`）会让 `/employees/{id}` 落到 `anyRequest().authenticated()`，
+ * 造成"列表挡了、明细放行"的越权——anyRequest 只保证已登录，不校验角色。
  */
 @Configuration
 @EnableWebSecurity
@@ -66,14 +69,17 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/refresh").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
-                        // 员工
-                        .requestMatchers(HttpMethod.GET, "/employees").hasAnyRole(Roles.ADMIN, Roles.GATE)
+                        // 员工（门岗只读：列表 + 明细。列表已返回同字段，单挡明细无安全收益只增摩擦）
+                        .requestMatchers(HttpMethod.GET, "/employees", "/employees/**")
+                        .hasAnyRole(Roles.ADMIN, Roles.GATE)
                         .requestMatchers("/employees", "/employees/**").hasRole(Roles.ADMIN)
-                        // 车辆
-                        .requestMatchers(HttpMethod.GET, "/vehicles").hasAnyRole(Roles.ADMIN, Roles.GATE)
+                        // 车辆（同上）
+                        .requestMatchers(HttpMethod.GET, "/vehicles", "/vehicles/**")
+                        .hasAnyRole(Roles.ADMIN, Roles.GATE)
                         .requestMatchers("/vehicles", "/vehicles/**").hasRole(Roles.ADMIN)
-                        // 通行权限（门岗可现场授权，删除仅管理员）
-                        .requestMatchers(HttpMethod.GET, "/permissions").hasAnyRole(Roles.ADMIN, Roles.GATE)
+                        // 通行权限（门岗可现场授权、可改有效期；删除仅管理员）
+                        .requestMatchers(HttpMethod.GET, "/permissions", "/permissions/**")
+                        .hasAnyRole(Roles.ADMIN, Roles.GATE)
                         .requestMatchers(HttpMethod.POST, "/permissions").hasAnyRole(Roles.ADMIN, Roles.GATE)
                         .requestMatchers(HttpMethod.PUT, "/permissions/**").hasAnyRole(Roles.ADMIN, Roles.GATE)
                         .requestMatchers("/permissions/**").hasRole(Roles.ADMIN)

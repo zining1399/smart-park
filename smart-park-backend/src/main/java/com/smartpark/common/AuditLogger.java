@@ -1,6 +1,7 @@
 package com.smartpark.common;
 
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -10,10 +11,18 @@ import org.springframework.stereotype.Component;
  * 关键操作审计日志（终稿 S05，等保/个保法合规要求）：
  * 每条审计必带 traceId（关联同一次请求的应用日志）与操作人（关联到人）。
  * 落日志文件，不建独立审计表。
+ *
+ * <p><b>logger 名固定为 {@value #LOGGER_NAME}</b>（刻意不用类名的 {@code @Slf4j}）：
+ * 运维侧按 <b>logger 名</b>做日志分流与 180 天留存策略，
+ * 若按报文里的 "AUDIT" 文本前缀匹配，会误伤应用日志中恰好含该词的行。
  */
-@Slf4j
 @Component
 public class AuditLogger {
+
+    /** 审计专用 logger 名：devops 按此名分流 + 保留 180 天 */
+    public static final String LOGGER_NAME = "AUDIT";
+
+    private static final Logger log = LoggerFactory.getLogger(LOGGER_NAME);
 
     private static final String ANONYMOUS = "anonymous";
     private static final String PREFIX = "AUDIT";

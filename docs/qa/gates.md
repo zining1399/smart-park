@@ -165,7 +165,7 @@ UAT 中新提出的范围外需求**不阻塞验收**，记入《需求变更备
 
 # ② 导入管道（TC-MIG-02 步骤① + TC-MIG-08）
 docker exec -i smart-park-mysql sh -c \
-  'exec mysql --defaults-extra-file=/run/secrets/bak.cnf --default-character-set=utf8mb4 smart_park' \
+  'exec mysql --defaults-extra-file=/run/secrets/app.cnf --default-character-set=utf8mb4 smart_park' \
   < /import/xxx_inserts.sql 2> /import/import_err.log
 [ -s /import/import_err.log ] && echo "导入有错 → FAIL" && exit 1   # 日志必须为空
 

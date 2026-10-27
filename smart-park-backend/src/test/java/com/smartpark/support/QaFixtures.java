@@ -22,7 +22,14 @@ import java.util.stream.Stream;
 public final class QaFixtures {
 
     private static final String DIR_PROPERTY = "qa.fixtures.dir";
-    private static final String DEFAULT_DIR = "../../docs/qa/fixtures";
+    /**
+     * 候选目录（按序取第一个存在的）：
+     * ① -Dqa.fixtures.dir=<目录>；
+     * ② ../docs/qa/fixtures —— surefire 的工作目录是**模块目录** smart-park-backend，
+     *    「../../」会退到仓库的上级（WorkBuddy/docs），是错的，这里必须只有一层「..」；
+     * ③ docs/qa/fixtures —— 兼容从仓库根目录运行 mvn -pl 的场景。
+     */
+    private static final String[] CANDIDATE_DIRS = {"../docs/qa/fixtures", "docs/qa/fixtures"};
 
     private QaFixtures() {
     }
@@ -91,18 +98,23 @@ public final class QaFixtures {
     }
 
     private static String resolveDir() {
-        String dir = System.getProperty(DIR_PROPERTY, DEFAULT_DIR);
-        Path path = Paths.get(dir);
-        if (!Files.isDirectory(path)) {
-            // 兼容从仓库根目录运行测试的场景
-            Path fallback = Paths.get("smart-park-backend").resolve(DEFAULT_DIR);
-            if (Files.isDirectory(fallback)) {
-                return fallback.toString();
-            }
-            throw new IllegalStateException("找不到参数化数据目录：" + path.toAbsolutePath()
-                    + "（可用 -D" + DIR_PROPERTY + "=<目录> 指定）");
+        String explicit = System.getProperty(DIR_PROPERTY);
+        if (explicit != null && Files.isDirectory(Paths.get(explicit))) {
+            return explicit;
         }
-        return dir;
+        for (String candidate : CANDIDATE_DIRS) {
+            Path path = Paths.get(candidate);
+            if (Files.isDirectory(path)) {
+                return candidate;
+            }
+        }
+        throw new IllegalStateException("找不到参数化数据目录，已尝试：" + String.join(" / ", CANDIDATE_DIRS)
+                + "（工作目录 " + Paths.get("").toAbsolutePath() + "；可用 -D" + DIR_PROPERTY + "=<目录> 指定）");
+    }
+
+    /** 供自检用例使用：返回实际解析到的 fixtures 目录 */
+    static String fixturesDir() {
+        return resolveDir();
     }
 
     /** 极简 CSV 解析：不支持引号内逗号（本项目 CSV 无此需求） */

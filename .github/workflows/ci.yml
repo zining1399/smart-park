@@ -70,6 +70,14 @@ jobs:
         working-directory: .
         run: python3 scripts/archive-lint.py docs/ops/archive.sql
 
+      # 现场脚本语法检查：CRLF 或手滑漏引号在 Linux 上表现为 bad interpreter / 静默错行，
+      # 在本地没有 docker 的情况下这是唯一能提前挡住的手段
+      - name: 运维脚本语法检查（bash -n）
+        run: |
+          for f in scripts/*.sh mysql/init/*.sh; do
+            bash -n "$f" && echo "ok: $f"
+          done
+
   # ---------------------------------------------------------------- 后端
   backend:
     name: 后端构建与测试
@@ -129,6 +137,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -172,6 +182,46 @@ jobs:
           docker pull "$IMG"
           docker run --rm "$IMG" which curl
           echo "✅ 镜像内含 curl，healthcheck 可用"
+
+  # ------------------------------------------------- 真实容器冒烟（补齐静态校验盲区）
+  # 静态校验挡不住 compose 网络、init 时序、healthcheck、Flyway 首迁这类问题，
+  # 这里用一次真跑把它们兜住；断言全在 scripts/smoke.sh，失败即 job 失败
+  smoke:
+    name: 真实容器冒烟
+    needs: images
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 拉取镜像并落到 compose 期望的本地 tag
+        run: |
+          set -eu
+          V=${{ needs.images.outputs.version }}
+          P=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}
+          docker pull "$P-backend:$V"
+          docker pull "$P-frontend:$V"
+          docker tag "$P-backend:$V"   "smart-park-backend:$V"
+          docker tag "$P-frontend:$V"  "smart-park-frontend:$V"
+      - name: 生成现场配置（一次性随机密钥，仅 runner 内存，不入制品）
+        run: |
+          set -eu
+          V=${{ needs.images.outputs.version }}
+          cp .env.example .env
+          {
+            echo "APP_VERSION=$V"
+            echo "MYSQL_ROOT_PASSWORD=$(openssl rand -base64 24)"
+            echo "MYSQL_APP_PASSWORD=$(openssl rand -base64 24)"
+            echo "MYSQL_MIG_PASSWORD=$(openssl rand -base64 24)"
+            echo "MYSQL_BAK_PASSWORD=$(openssl rand -base64 24)"
+            echo "SMARTPARK_JWT_SECRET=$(openssl rand -base64 48)"
+          } >> .env
+          chmod 600 .env
+          ./scripts/init-secrets.sh
+      - name: 冒烟断言（scripts/smoke.sh）
+        run: ./scripts/smoke.sh
+      - name: 收尾下线（runner 一次性，销毁不影响任何真实数据）
+        if: always()
+        run: docker compose --env-file .env down -v || true
 
   # ---------------------------------------------------------------- 交付包
   release:

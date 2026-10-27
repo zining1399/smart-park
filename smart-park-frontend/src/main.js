@@ -1,6 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import { OfficeBuilding, Odometer, Lock, UserFilled, Box, Bell, User, ArrowDown } from '@element-plus/icons-vue'
+import { OfficeBuilding, Odometer, Lock, UserFilled, Box, Bell, Monitor, User, ArrowDown } from '@element-plus/icons-vue'
 
 import App from './App.vue'
 import router from './router'

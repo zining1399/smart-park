@@ -100,11 +100,14 @@ services:
     image: smart-park-frontend:${APP_VERSION:-1.0.0}
     # ⚠ Vite 的 VITE_* 是【构建期】变量：会内联进产物 JS，运行时改环境变量无效。
     #    修改前端 API 地址或部署子路径，必须重新 build 镜像（仅 up -d 重启无效）。
+    #    三者默认留空 = 由前端代码默认值兜底（API=/api、BASE=/），同域根路径部署无需填写。
+    #    仅子路径部署（如 http://host/park/）才需要 VITE_BASE=/park/ 并重新 build。
     build:
       context: ./smart-park-frontend
       args:
-        VITE_API_BASE: ${VITE_API_BASE:-/api}
-        VITE_BASE: ${VITE_BASE:-/}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        VITE_API_BASE: ${VITE_API_BASE:-}
+        VITE_BASE: ${VITE_BASE:-}
     container_name: smart-park-frontend
     restart: unless-stopped
     ports:

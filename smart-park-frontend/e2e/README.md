@@ -84,13 +84,17 @@ npm run test:compat
 | `E2E_AUTH_TOKEN` / `E2E_REFRESH_TOKEN` | 空 | 直接给定 token / refreshToken，跳过登录（仅验证渲染时用） |
 | `E2E_USER_ADMIN` / `E2E_PASS_ADMIN` | 空 | 管理员账号（role=ADMIN） |
 | `E2E_USER_GATE` / `E2E_PASS_GATE` | 空 | 门岗账号（role=GATE） |
-| `E2E_USER_STOCK` / `E2E_PASS_STOCK` | 空 | 仓管账号（role=STORE） |
+| `E2E_USER_STORE` / `E2E_PASS_STORE` | 空 | 仓管账号（**角色码 `STORE`、登录名 `store`**，不是 STOCK/stock） |
 | `E2E_USER_DISABLED` / `E2E_PASS_DISABLED` | 空 | 禁用账号（可选，未配置则 TC-FE-15b 自动 skip） |
 | `E2E_START_SERVERS` | 空 | 置 1 时由 Playwright 拉起前后端 |
 
 > CI 注入口径：账号密码**全部走环境变量，无硬编码**。`loginAs(role)` 从
-> `E2E_USER_{ADMIN,GATE,STOCK}` / `E2E_PASS_*` 取值，未取到时回落到
-> `api.login` 失败→造一份同角色 `sp_user` 兜底；要让"真实登录"被验证，CI 必须注入这 6 个变量。
+> `E2E_USER_{ADMIN,GATE,STORE}` / `E2E_PASS_*` 取值，未取到时回落到
+> "按角色造一份假 `sp_user`"——**用例不会红，但等于没验到真实登录**，CI 必须注入这 6 个变量。
+> 角色实参写 `admin` / `gate` / `store`（`stock` 为历史别名，会自动归一到 `store`）。
+
+后端 `AdminInitializer` 只在 `sys_user` 为空时建号，口令由 `SMARTPARK_INIT_{ADMIN,GATE,STORE}_PASSWORD`
+注入；**不注入就是随机 UUID 且只在启动日志打印一次**，E2E 拿不到 → 上面那 6 个变量必须与之对应。
 
 | `E2E_KNOWN_FAIL` | 空 | 置 `1` 时执行"已知缺陷哨兵"用例（当前用于 40103 相关），默认 skip 以免长期染红 CI |
 

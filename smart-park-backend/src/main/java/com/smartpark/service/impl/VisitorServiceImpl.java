@@ -68,6 +68,11 @@ public class VisitorServiceImpl extends ServiceImpl<VisitorMapper, Visitor> impl
         if (exist == null) {
             throw BizException.notFound("访客记录不存在");
         }
+        // 放行 NULL（部分更新语义：不传 = 不改，DDL 允许 NULL 是留给"全园区通用访客"的扩展空间）；
+        // 但拒绝显式空串 / 纯空白——空串不是 NULL，是脏数据，会让门禁按 area 匹配放行规则时判断出错
+        if (visitor.getArea() != null && visitor.getArea().isBlank()) {
+            throw new BizException("授权区域不能为空字符串");
+        }
         // 状态流转只能走 check-in / check-out / 定时任务，普通修改不允许直接改状态与进出时间
         visitor.setStatus(exist.getStatus());
         visitor.setCheckInTime(exist.getCheckInTime());

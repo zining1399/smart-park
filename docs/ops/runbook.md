@@ -39,6 +39,12 @@ docker compose --env-file .env up -d
 # ④ 观察（frontend 最后转 healthy，说明 Flyway 迁移已完成）
 docker compose ps
 docker compose logs -f backend
+
+# ⑤ 冒烟（★ 强烈建议：一条命令跑完全部断言，失败即 exit 1 并打印失败清单）
+./scripts/smoke.sh
+#    覆盖：compose config / 三容器 healthy / Flyway 1 行 success=1 / 业务表 11 + CHECK 20 /
+#         actuator UP / 前端 200 + SPA fallback / 3306 与 8080 未对宿主机暴露
+#    只跑断言不重启栈：SMOKE_UP=0 ./scripts/smoke.sh
 ```
 
 首次启动顺序由 compose 保证：`mysql healthy → backend 启动并执行 Flyway 迁移 → backend healthy → frontend 启动放流量`。
@@ -71,9 +77,11 @@ ls -lt backup/ | head -3                            # 备份是否每日更新
 ./scripts/backup.sh
 
 # 恢复（演练流程，每季度一次）
+# ⚠ 必须用 mig.cnf：全量恢复要建表 + 写入，bak.cnf（只读）会在第一条 CREATE TABLE 报 1142，
+#    app.cnf（无 DDL）同样不够。恢复是低频高危操作，用带 DDL 的迁移账号是唯一可行动作。
 docker compose stop backend
 gunzip < backup/full_YYYYMMDD_HHMM.sql.gz | \
-  docker exec -i smart-park-mysql sh -c 'exec mysql --defaults-extra-file=/run/secrets/bak.cnf smart_park'
+  docker exec -i smart-park-mysql sh -c 'exec mysql --defaults-extra-file=/run/secrets/mig.cnf smart_park'
 docker compose start backend
 
 # PITR（需 binlog，保留 7 天）：先恢复全量，再重放 binlog 到误操作前一刻
@@ -167,6 +175,9 @@ docker exec -i smart-park-mysql sh -c \
 
 > **导入的三条使用纪律**：
 > 1. 必须用 `app.cnf`（应用账号：仅 **DML，无 DDL/DROP**）；`bak.cnf`（备份账号，仅 SELECT）导入会报 **ERROR 1142**；不要用 `mig.cnf`（带 DDL，不该暴露给高频导入）。
+>    账号 host 口径：`docker exec` 内的 `mysql` 客户端默认走 **socket**，连接 host 是 `localhost`，
+>    所以 app / mig 账号都同时授了 `@'172.28.%'`（容器内 TCP）与 `@'localhost'`（socket）两段
+>    —— 少了 localhost 段，导入/归档/恢复报的是 **ERROR 1045（拒绝连接）**，不是 1142，别照 1142 去查。
 >    权限边界：即便转义有 bug 或 `.sql` 被手工改过，最坏情况也只是"插入脏数据（可回滚、可被校验发现）"，不会变成删库。
 > 2. **必须先 `> out.sql` 再导入，不能直接管道** —— 校验是"中途失败"语义（`exit 4` 且不写 `COMMIT`），管道会把已生成的部分灌进库里。
 > 3. **stderr 必须单独留存**（上面的 `2> /import/import_err.log`），QA 校验项断言其"0 字节"；不要把 stderr 合并进 stdout 丢失。
@@ -181,7 +192,8 @@ docker exec -i smart-park-mysql sh -c \
 4. **不要给 MySQL 账号加主机名形式授权**（`@'app-host'`）—— `skip-name-resolve` 下会失效。
 5. **不要新增 `GRANT ... ON <db>.flyway_schema_history`** —— 该表在 init 阶段不存在，会报 ERROR 1146 中断首次部署。
 6. **不要给后端换 alpine 基础镜像而不改 healthcheck** —— alpine 无 curl，`/dev/tcp` 兜底也需 bash。
-7. **🔴 PII 红线：`scripts/csv-to-inserts.py` 里不得实现任何加解密**。存量身份证/手机号加密只走后端一次性 Java Job（复用同一套 CryptoService）——密钥落进 python 脚本等于加密白做。同理，导入脚本不做自动 `iconv` 转码：编码问题必须暴露给操作员，不能静默掩盖。
+7. **不要只给 app / mig 授 `@'172.28.%'` 一段 host** —— `docker exec` 内的 `mysql` 客户端默认走 socket，连接 host 是 `localhost`；少了 `@'localhost'` 段，导入 / 归档 / 恢复全部报 **ERROR 1045**（不是 1142，容易被误判成密码问题）。备份账号 bak 只有 localhost 段，正是因为它只服务 `docker exec`。
+8. **🔴 PII 红线：`scripts/csv-to-inserts.py` 里不得实现任何加解密**。存量身份证/手机号加密只走后端一次性 Java Job（复用同一套 CryptoService）——密钥落进 python 脚本等于加密白做。同理，导入脚本不做自动 `iconv` 转码：编码问题必须暴露给操作员，不能静默掩盖。
 
 ### 已知约束与变更步骤：应用与数据库分离部署
 若客户要求应用容器与数据库分离部署或改连已有 MySQL：
@@ -221,7 +233,9 @@ docker exec -i smart-park-mysql sh -c \
 - [ ] `ip -4 route | grep -E '^172\.28\.'` 为空（网段无冲突）
 - [ ] staging 冒烟通过 + 回滚演练完成一次并留记录
 - [ ] 备份 crontab 已配置、异机副本可达
-- [ ] **🔴 真实容器冒烟已补做**（`docker compose config` + `up -d` + 三容器 healthy + 首启 Flyway 迁移成功）
+- [ ] **🔴 真实容器冒烟已补做**：直接在目标机跑 `./scripts/smoke.sh`（一条命令覆盖全部断言：
+      `compose config` / 三容器 healthy / Flyway 1 行 success=1 / 业务表 11 + CHECK 20 / actuator UP /
+      前端 200 + SPA fallback / 3306 与 8080 未暴露），失败即 exit 1 并打印失败清单。
       —— 开发机**无 docker**，静态校验（YAML/语法/变量交叉/脚本功能自测）**无法覆盖 compose 网络与 init 时序问题**；
       CI 的 `which curl` 自检只能挡住镜像依赖缺失。此项必须在**有 docker 的机器或客户现场**完成，不得跳过
 

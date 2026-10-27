@@ -4,8 +4,10 @@ import { factories } from '../fixtures/api.js'
 /**
  * TC-FE-01 / TC-FE-02 / TC-FE-13 / TC-FE-14 —— 登录与全局错误处理
  *
- * TODO(M2)：登录页 /login 与 JWT 拦截器落地前，前三条依赖登录 UI 的用例跳过；
- *          接口路径以 api-contract.md 增补后的鉴权章节为准。
+ * M3 前端已落地 /login 与顶栏登出入口；⏳ 依赖后端 /auth/* 就位后才能联调执行。
+ * 凭证口径：sp_token / sp_refresh / sp_user 三件套（见 fixtures/app.js）。
+ * ⚠️ 40101/40102/40103/40301 在前端 src/api/request.js 里是 hard-code：
+ *    若后端改动数值，前端会静默失效——出现“过期不跳登录”时先核对 code 再提缺陷。
  */
 const loginUiReady = process.env.E2E_LOGIN_UI === '1'
 
@@ -22,8 +24,8 @@ test.describe('FE-01 登录与会话', () => {
     await expect(page.locator('.stat-card')).toHaveCount(5)
     await expect(page.locator('input[type="password"]')).toHaveCount(0)
 
-    // 登出（TODO(M2)：登出入口选择器以最终实现为准，此处按顶栏「退出登录」文案）
-    await page.locator('.layout-header').getByText('退出登录').click()
+    // 登出：顶栏 .user-info → 下拉「退出登录」→ 侧边栏/菜单项退出
+    await ui.logout()
     await expect(page).toHaveURL(/\/login/)
 
     // 回退：不得回到工作台
@@ -44,11 +46,16 @@ test.describe('FE-01 登录与会话', () => {
     await expect(page).toHaveURL(/\/login/)
   })
 
-  test('TC-FE-13 token 过期后任意操作统一跳转登录页且不白屏', async ({ page, ui }) => {
-    test.skip(!loginUiReady, 'TODO(M2)：等待 JWT 过期拦截器实现')
-    // 前置：已登录进入工作台，随后清除 token 模拟过期
-    await page.goto('/')
-    await page.evaluate((key) => window.localStorage.setItem(key, 'expired.token.value'), process.env.E2E_TOKEN_KEY || 'token')
+  test('TC-FE-13 token 过期后任意操作统一跳转登录页且不白屏', async ({ page, ui, loginAs }) => {
+    test.skip(!loginUiReady, 'TODO：等待后端 /auth/* 就位后联调')
+    // 前置：正常登录进工作台
+    await loginAs('admin')
+
+    // 模拟 access token 过期：只替换 sp_token，保留 sp_user（否则会走引导逻辑而非 401 链路）
+    await page.evaluate(
+      (key) => window.localStorage.setItem(key, 'expired.token.value'),
+      process.env.E2E_TOKEN_KEY || 'sp_token'
+    )
 
     // 触发一次需鉴权操作
     await ui.openMenuGroup('智慧门禁')

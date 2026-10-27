@@ -9,10 +9,17 @@ import { API } from './api.js'
  *
  * 说明：M2 落地鉴权后，token 键名（E2E_TOKEN_KEY）与登录接口路径需与 backend 对齐，本文件已做成可配置。
  */
+// 角色码是 STORE、登录名是 store（不是 STOCK / stock）—— 差一个字母最坑人，
+// 环境变量名统一用 STORE，避免后人按 STOCK 去猜登录名猜成 stock 然后 40102
 const ROLE_ENV = {
   admin: { user: 'E2E_USER_ADMIN', pass: 'E2E_PASS_ADMIN', role: 'ADMIN' },
   gate: { user: 'E2E_USER_GATE', pass: 'E2E_PASS_GATE', role: 'GATE' },
-  stock: { user: 'E2E_USER_STOCK', pass: 'E2E_PASS_STOCK', role: 'STORE' }
+  store: { user: 'E2E_USER_STORE', pass: 'E2E_PASS_STORE', role: 'STORE' }
+}
+
+/** 'stock' 是历史误写别名（早期用例按资源名写的），归一到 'store'，待调用点迁完后删除 */
+function resolveRole(role) {
+  return role === 'stock' ? 'store' : role
 }
 
 /** 凭证三件套（M2 前端实测口径）：access / refresh / user(JSON)，缺一会被引导逻辑踢回登录页 */
@@ -125,8 +132,10 @@ export const test = base.extend({
 
   /** 以角色登录并进入工作台。返回 token（接口登录）或 null（UI 登录） */
   loginAs: async ({ page, api, apiURL, baseURL }, use) => {
-    const login = async (role = 'admin') => {
+    const login = async (roleArg = 'admin') => {
+      const role = resolveRole(roleArg)
       const creds = ROLE_ENV[role]
+      if (!creds) throw new Error(`loginAs: 未知角色 "${roleArg}"，可用：${Object.keys(ROLE_ENV).join(' / ')}`)
       const username = process.env[creds.user]
       const password = process.env[creds.pass]
       const direct = process.env.E2E_AUTH_TOKEN
@@ -158,7 +167,7 @@ export const test = base.extend({
         userJson = JSON.stringify({
           username,
           realName: username,
-          role: ROLE_ENV[role].role
+          role: creds.role
         })
       }
       await page.goto('/')

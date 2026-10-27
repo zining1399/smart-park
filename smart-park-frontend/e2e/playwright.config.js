@@ -12,7 +12,7 @@ import { defineConfig, devices } from '@playwright/test'
  *   E2E_USER_KEY     用户信息的键名，默认 sp_user（存 JSON 字符串，必须一并注入）
  *   E2E_USER_ADMIN / E2E_PASS_ADMIN     管理员账号
  *   E2E_USER_GATE   / E2E_PASS_GATE     门岗账号
- *   E2E_USER_STOCK  / E2E_PASS_STOCK    仓管账号
+ *   E2E_USER_STORE  / E2E_PASS_STORE    仓管账号（角色码 STORE、登录名 store，不是 STOCK/stock）
  *   E2E_AUTH_TOKEN  直接给定 token（跳过登录步骤，用于只验证页面渲染的场景）
  *
  * ⚠️ 凭证是“三件套”而非单 token：sp_token(access) / sp_refresh(refresh) / sp_user(JSON:{"username","realName","role"})。

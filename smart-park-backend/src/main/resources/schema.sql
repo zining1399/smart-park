@@ -1,21 +1,25 @@
 -- 智慧园区管理系统 H2 表结构（每次启动重建，保证演示数据一致）
-DROP TABLE IF EXISTS employee;
-DROP TABLE IF EXISTS vehicle;
-DROP TABLE IF EXISTS access_permission;
-DROP TABLE IF EXISTS access_record;
-DROP TABLE IF EXISTS visitor;
-DROP TABLE IF EXISTS material;
-DROP TABLE IF EXISTS stock_record;
+-- 匹配 Java 实体类字段（开发环境用，生产用 MySQL + Flyway）
 DROP TABLE IF EXISTS alarm;
+DROP TABLE IF EXISTS stock_record;
+DROP TABLE IF EXISTS material;
+DROP TABLE IF EXISTS visitor;
+DROP TABLE IF EXISTS access_record;
+DROP TABLE IF EXISTS access_permission;
+DROP TABLE IF EXISTS vehicle;
+DROP TABLE IF EXISTS employee;
+DROP TABLE IF EXISTS sys_user;
 
 -- 员工
 CREATE TABLE employee (
-    id      BIGINT AUTO_INCREMENT PRIMARY KEY,
-    emp_no  VARCHAR(32)  NOT NULL,
-    name    VARCHAR(64)  NOT NULL,
-    dept    VARCHAR(64),
-    phone   VARCHAR(32),
-    status  VARCHAR(16)  NOT NULL DEFAULT '在职',
+    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    emp_no      VARCHAR(32)  NOT NULL,
+    name        VARCHAR(64)  NOT NULL,
+    dept        VARCHAR(64),
+    phone       VARCHAR(255),
+    phone_hash  CHAR(64),
+    phone_mask  VARCHAR(32),
+    status      VARCHAR(16)  NOT NULL DEFAULT '在职',
     CONSTRAINT uk_employee_emp_no UNIQUE (emp_no)
 );
 
@@ -56,12 +60,16 @@ CREATE TABLE access_record (
 );
 CREATE INDEX idx_access_record_pass_time ON access_record (pass_time);
 
--- 访客
+-- 访客（含身份证/手机号三列：密文 + hash + 掩码）
 CREATE TABLE visitor (
     id             BIGINT AUTO_INCREMENT PRIMARY KEY,
     visitor_name   VARCHAR(64) NOT NULL,
-    id_card        VARCHAR(32),
-    phone          VARCHAR(32),
+    id_card        VARCHAR(255),
+    id_card_hash   CHAR(64),
+    id_card_mask   VARCHAR(32),
+    phone          VARCHAR(255),
+    phone_hash     CHAR(64),
+    phone_mask     VARCHAR(32),
     plate_no       VARCHAR(32),
     host_name      VARCHAR(64),
     host_dept      VARCHAR(64),
@@ -115,4 +123,16 @@ CREATE TABLE alarm (
     status      VARCHAR(16) NOT NULL DEFAULT '未处理',
     create_time VARCHAR(20) NOT NULL,
     handle_time VARCHAR(20)
+);
+
+-- 系统账号（登录用）
+CREATE TABLE sys_user (
+    id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username      VARCHAR(64) NOT NULL,
+    password_hash VARCHAR(100) NOT NULL,
+    real_name     VARCHAR(64) NOT NULL,
+    role          VARCHAR(16) NOT NULL,
+    status        VARCHAR(16) NOT NULL DEFAULT '启用',
+    create_time   VARCHAR(20) NOT NULL,
+    CONSTRAINT uk_sys_user_username UNIQUE (username)
 );

@@ -6,9 +6,9 @@ import { factories } from '../fixtures/api.js'
  * TC-FE-10 贵重物资出库→审批→出库
  * TC-FE-15 出入库类型筛选下拉不含 RETURN（裁决 15）
  *
- * TODO(M2)：裁决 15 要求 stock_record.type 仅 IN/OUT；当前 StockRecord.vue 仍保留
- *          <el-option label="归还" value="RETURN" />，TC-FE-15 在前端清理前**预期为 FAIL**，
- *          该 FAIL 是有效缺陷信号，不得改对。
+ * ✅ M3 前端已删除 <el-option value="RETURN" /> 与 typeText 的三分支，本用例转 PASS。
+ *    保留它作为回归哨兵：一旦有人把 RETURN 加回来，本用例立刻 FAIL。
+ *    （未知类型的 fallback 也已改为 '-'，不会误导成「归还」。）
  */
 
 const EXPECTED_TYPES = ['入库', '出库']
@@ -116,7 +116,7 @@ test('TC-FE-15 出入库类型筛选下拉不含 RETURN 选项（裁决 15）', 
   await page.locator('.el-form-item:has(label:has-text("类型")) .el-select').click()
   const optionTexts = (await page.locator('.el-select-dropdown__item:visible').allInnerTexts()).map((t) => t.trim()).filter(Boolean)
 
-  // 断言点：类型选项恰好为 入库/出库；出现「归还」即 FAIL（当前前端仍保留，预期 FAIL）
+  // 断言点：类型选项恰好为 入库/出库；出现「归还」= 回归缺陷，立即上报
   expect(optionTexts.sort()).toEqual([...EXPECTED_TYPES].sort())
   expect(optionTexts).not.toContain('归还')
 })

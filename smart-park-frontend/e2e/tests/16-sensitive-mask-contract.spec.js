@@ -20,6 +20,9 @@ const CRED_ENV = {
   admin: ['E2E_USER_ADMIN', 'E2E_PASS_ADMIN']
 }
 
+const TOKEN_KEY = process.env.E2E_TOKEN_KEY || 'sp_token'
+const REFRESH_KEY = process.env.E2E_REFRESH_KEY || 'sp_refresh'
+
 async function loginToken(api, apiURL, role = 'admin') {
   const [u, p] = CRED_ENV[role]
   const res = await api.login(api.ctx, apiURL, process.env[u], process.env[p])
@@ -107,10 +110,36 @@ test.describe('FE-22 敏感字段命名与形态', () => {
     // 断言点②：提示说清是"被禁用"，而不是含糊的"请求失败"
     await expect(ui.message()).toContainText('禁用')
     // 断言点③：凭证已清空，浏览器回退后不能继续用旧 token 操作
-    const left = await page.evaluate(
-      ([tk]) => window.localStorage.getItem(tk),
-      [process.env.E2E_TOKEN_KEY || 'sp_token']
-    )
+    const left = await page.evaluate(([tk]) => window.localStorage.getItem(tk), [TOKEN_KEY])
     expect(left).toBeNull()
+  })
+
+  test('TC-FE-22d /auth/refresh 自身返回 40103 时也必须踢登录并清凭证（防"刷新成功→40103→再刷新"循环）', async ({ page, ui, loginAs }) => {
+    await loginAs('admin')
+
+    // 禁用账号的 refresh token 可能尚未过期：refresh 拿到 40103 后若只提示不清凭证，
+    // 就会陷入"刷新成功 → 业务请求 40103 → 再刷新"的死循环
+    await page.route('**/api/auth/refresh', (route) =>
+      route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 40103, message: '账号已被禁用，请联系管理员', data: null })
+      })
+    )
+
+    await page.goto('/')
+    await page.evaluate(
+      ([tk, rk]) => {
+        window.localStorage.setItem(tk, 'expired.access.token')
+        window.localStorage.setItem(rk, 'still.valid.refresh.token')
+      },
+      [TOKEN_KEY, REFRESH_KEY]
+    )
+    await page.goto('/dashboard')
+
+    await expect(page).toHaveURL(/\/login/)
+    await expect(ui.message()).toContainText('禁用')
+    expect(await page.evaluate(([tk]) => window.localStorage.getItem(tk), [TOKEN_KEY])).toBeNull()
+    expect(await page.evaluate(([rk]) => window.localStorage.getItem(rk), [REFRESH_KEY])).toBeNull()
   })
 })

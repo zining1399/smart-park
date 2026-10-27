@@ -10,9 +10,16 @@ WORKDIR /build
 
 # ⚠ Vite 的 VITE_* 是【构建期】变量：会被内联进产物 JS，运行时改环境变量无效。
 #    修改前端 API 地址或部署子路径必须重新 build 镜像（仅重启容器无效）。
-ARG VITE_API_BASE=/api
-ARG VITE_BASE=/
-ENV VITE_API_BASE=$VITE_API_BASE \
+#
+# ★ 三个变量一律【默认留空】，由前端代码默认值兜底（API=/api、BASE=/）：
+#   仓库 .gitignore 排除了 .env.*，Docker 构建上下文里不会有 .env.production，
+#   若在此硬编码默认值，客户现场一构建就可能拿到与 nginx 反代不一致的地址而白屏。
+#   前端读取顺序：VITE_API_BASE_URL || VITE_API_BASE（兼容别名）|| '/api'
+ARG VITE_API_BASE_URL=
+ARG VITE_API_BASE=
+ARG VITE_BASE=
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
+    VITE_API_BASE=$VITE_API_BASE \
     VITE_BASE=$VITE_BASE
 
 # 内网/加速场景可注入镜像源（docker build --build-arg NPM_REGISTRY=...）

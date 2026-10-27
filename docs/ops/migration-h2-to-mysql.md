@@ -229,12 +229,15 @@ python3 scripts/csv-to-inserts.py alarm \
 ### 4.4 Step 3：导入
 
 ```bash
-# 导入必须用【迁移账号】的凭据文件。不要用 bak.cnf —— 备份账号只有 SELECT 权限，会报 1142。
+# 导入必须用【应用账号】的凭据文件 app.cnf（仅 DML：SELECT/INSERT/UPDATE/DELETE）。
+#   - bak.cnf（备份账号，仅 SELECT）导入会报 ERROR 1142
+#   - 不要用 mig.cnf（迁移账号带 DDL/DROP）—— 导入是"把不可信 CSV 变成可执行 SQL"的
+#     唯一环节，让它持有 DDL 会把最坏情况从"插脏数据（可回滚）"放大成"删表"
 # 顺序：先主数据，后流水。乱序不会报错（无外键），但会让校验④的孤儿检查失去意义。
 for t in employee vehicle material visitor access_permission access_record stock_record alarm; do
   echo "=== importing $t ==="
   docker exec -i smart-park-mysql sh -c \
-    'exec mysql --defaults-extra-file=/run/secrets/mig.cnf --default-character-set=utf8mb4 smart_park' \
+    'exec mysql --defaults-extra-file=/run/secrets/app.cnf --default-character-set=utf8mb4 smart_park' \
     < /tmp/smartpark_export/$t.sql \
     2> /tmp/smartpark_export/$t.err        # ← stderr 必须单独留存，校验②要用
   echo "exit=$?  err_bytes=$(wc -c < /tmp/smartpark_export/$t.err)"
@@ -242,9 +245,12 @@ for t in employee vehicle material visitor access_permission access_record stock
 done
 ```
 
-> 容器名 / 库名 / 凭据文件路径请与运维实际部署对齐（以 `scripts/` 下的 compose 与 `init-secrets.sh` 为准）。
-> 若运维只提供了 `bak.cnf`，请让 devops 补一份迁移账号的 cnf——**不要**拿备份账号凑合，
-> 也不要把密码直接写进命令行（会进 `ps` 输出和 shell history）。
+> 实际值（已与运维对齐，2026 年交付版）：容器名 `smart-park-mysql`、库名 `smart_park`、
+> 导入凭证 `/run/secrets/app.cnf`（由 `scripts/init-secrets.sh` 生成，权限 600）。
+> 账号 host 口径：`docker exec` 内的 `mysql` 走 **socket**，连接 host 是 `localhost`，
+> 因此 app / mig 账号均同时授 `@'172.28.%'` 与 `@'localhost'` 两段——
+> 若报 **ERROR 1045** 是 host 段不匹配（不是密码错），若报 **1142** 才是权限不足。
+> 不要把密码直接写进命令行（会进 `ps` 输出和 shell history）。
 
 **导入顺序**：`employee / vehicle / material`（主数据）→ `visitor / access_permission`（依赖主数据的业务单）→ `access_record / stock_record / alarm`（流水与告警）。
 
@@ -428,11 +434,11 @@ UAT 环境如需要演示数据，必须由客户书面确认，且**身份证/�
 | `ERROR 1292 (22007) Incorrect datetime value` | 脏日期 | 不要放宽 `sql_mode` 绕过！去源端修数据，见校验②-b |
 | `ERROR 3819 (HY000) Check constraint 'chk_xxx' is violated` | 脏枚举 | 源端修正；若确实是新业务值，走 DDL 变更改 CHECK，不要在导入时关约束 |
 | `ERROR 1366 Incorrect integer value: 'TRUE'` | H2 BOOLEAN 未转换 | §4.2 的导出 SQL 里已用 `CASE WHEN valuable THEN 1 ELSE 0 END` 转掉；出现该错说明有人改回了 `SELECT *` |
-| `ERROR 1142 (42000) ... command denied` | 账号权限不足 | 多半是用了备份账号（`bak.cnf`）导入。换成迁移账号的 cnf |
+| `ERROR 1142 (42000) ... command denied` | 账号权限不足 | 多半是用了备份账号（`bak.cnf`）导入。换成应用账号的 `app.cnf` |
 | `ERROR 1406 (22001) Data too long` | 字段超长 | 多为 `reason`/`content`/`remark`，确认是否截断安全，否则改列宽走 Flyway V2 |
 | `ERROR 1062 (23000) Duplicate entry` | 重复导入或源端本身有重复 | 先 `TRUNCATE` 再重导；若源端重复，让客户确认保留哪条 |
 | `ERROR 1146 (42S02) Table doesn't exist` | Flyway 没跑成功 | 查 `SELECT * FROM flyway_schema_history`，V1 失败要先修 V1 再重来 |
-| `ERROR 1044 / 1142` | 账号权限不足 | 用迁移账号（有 INSERT），不要用应用账号（仅业务所需 DML） |
+| `ERROR 1045 (28000) Access denied` | 账号 host 段不匹配（不是权限不足） | `docker exec` 走 socket，连接 host 是 `localhost`：确认 app/mig 账号有 `@'localhost'` 授权（见 `mysql/init/01-accounts.sh`） |
 | `ERROR 3911 (constraint does not exist)` | V1 里归档表的 `DROP CHECK` 找不到约束 | 该版本 `CREATE TABLE ... LIKE` 未继承 CHECK，删掉那两行 ALTER 即可 |
 | H2 报 `Database may be already in use` | 应用没停 | 停应用后再导出 |
 

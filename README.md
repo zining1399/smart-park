@@ -61,3 +61,16 @@ npm run dev
 ## 跨域（CORS）
 
 双保险：① 后端 `CorsConfig` 全局放行开发环境来源；② 前端 Vite dev server 配置 `/api` 代理。生产部署建议走同源 Nginx 反代。
+
+## 生产部署（客户现场 Docker 一键部署）
+
+```bash
+cp .env.example .env && chmod 600 .env && vi .env   # 填写所有空值（密码用 openssl rand 生成）
+./scripts/init-secrets.sh                           # 生成 mysql/*.cnf（600，严禁入库）
+docker compose --env-file .env up -d
+./scripts/smoke.sh                                  # 真实容器冒烟：断言全通过才允许对外服务
+```
+
+- 对外只有 Nginx 一个入口，3306 / 8080 均不发布到宿主机；数据落在 `smart-park-mysql-data` 卷
+- 回滚 = 改 `.env` 的 `APP_VERSION` 后重建 backend / frontend 容器（<30 秒）
+- 完整运维手册（巡检 / 备份恢复 / 发布回滚 / 数据导入 / 归档 / 割接检查单）：`docs/ops/runbook.md`

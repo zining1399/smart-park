@@ -127,7 +127,16 @@ async function handleTokenExpired(config, error) {
   } catch (e) {
     isRefreshing = false
     flushQueue(null, e)
-    redirectToLogin('登录已失效，请重新登录')
+    // refresh 自身也可能被判 40103（账号被禁用但 refresh token 尚未过期）：
+    // 这时若只提示不清凭证，会陷入"刷新成功 → 业务请求 40103 → 再刷新"的循环，
+    // 必须踢登录并清 token，且提示要说清是"被禁用"而不是"已过期"
+    const rc = e && e.response && e.response.data && e.response.data.code
+    const rmsg = (e && e.response && e.response.data && e.response.data.message) || ''
+    if (rc === ERROR_CODE.ACCOUNT_DISABLED) {
+      redirectToLogin(rmsg || '账号已被禁用，请联系管理员')
+    } else {
+      redirectToLogin('登录已失效，请重新登录')
+    }
     return Promise.reject(error)
   }
 }
