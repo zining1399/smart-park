@@ -30,7 +30,7 @@
 
     <div class="table-toolbar">
       <span></span>
-      <!-- 门岗具备 POST /permissions 权限；编辑/删除仍按管理员收敛（待与后端确认 PUT/DELETE 权限） -->
+      <!-- 权限口径（后端冻结，见 api-contract §七）：POST/PUT /permissions 对 ADMIN+GATE 开放，DELETE 仅 ADMIN -->
       <el-button v-permission="['ADMIN', 'GATE']" type="primary" @click="openDialog()">新增权限</el-button>
     </div>
 
@@ -60,7 +60,7 @@
       </el-table-column>
       <el-table-column label="操作" width="150" fixed="right">
         <template #default="{ row }">
-          <!-- 权限口径：POST/PUT 对管理员与门岗开放（门岗需现场调整有效期），DELETE 仅管理员 -->
+          <!-- 权限口径：PUT 对门岗放开（访客临时延期需现场改有效期）；DELETE 收归管理员（撤销风险高，到期自动失效） -->
           <el-button v-permission="['ADMIN', 'GATE']" link type="primary" @click="openDialog(row)">编辑</el-button>
           <el-button v-permission="['ADMIN']" link type="danger" @click="handleDelete(row)">删除</el-button>
         </template>

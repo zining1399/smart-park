@@ -7,7 +7,7 @@ import router from '../router'
 export const ERROR_CODE = {
   TOKEN_INVALID: 40101, // 401 token 缺失/过期/无效
   BAD_CREDENTIALS: 40102, // 401 账号密码错误（仅 /auth/login）
-  ACCOUNT_DISABLED: 40103, // 401 账号禁用（仅 /auth/login）
+  ACCOUNT_DISABLED: 40103, // 401 账号禁用（登录页：只提示；业务请求：踢登录，见下方分支）
   FORBIDDEN: 40301, // 403 无角色权限
   BAD_REQUEST: 40001, // 400 参数校验失败
   NOT_FOUND: 40401, // 404 资源不存在
@@ -43,6 +43,14 @@ function notify(message, type = 'error') {
 
 function withTrace(message, traceId) {
   return traceId ? `${message}（追踪号 ${traceId}）` : message
+}
+
+/** 判断 401 是否发生在登录场景（登录请求本身，或当前页面就是登录页） */
+function isLoginRequest(config) {
+  const url = String((config && config.url) || '')
+  if (url.includes('/auth/login')) return true
+  const current = router.currentRoute && router.currentRoute.value
+  return !!current && current.path === '/login'
 }
 
 // ---------- 跳转登录（防抖，保证只跳一次） ----------
@@ -159,8 +167,21 @@ request.interceptors.response.use(
       if (code === ERROR_CODE.TOKEN_INVALID) {
         return handleTokenExpired(config, error)
       }
-      // 40102 / 40103：仅登录页会出现，只提示不跳转
-      if (code === ERROR_CODE.BAD_CREDENTIALS || code === ERROR_CODE.ACCOUNT_DISABLED) {
+      // 40103 账号禁用：按出现位置分两种处理（qa TC-FE-21 指出的僵死态）
+      //   登录页 / /auth/login：只提示不跳转（已在登录页，再跳一次只会闪屏并丢 redirect 参数）
+      //   业务请求：账号被禁用后 filter 会在每个请求上返 40103，若只提示不跳转，
+      //            用户停在原页面、数据永远刷不出来 —— 必须踢回登录并说清是"被禁用"
+      if (code === ERROR_CODE.ACCOUNT_DISABLED) {
+        const msg = serverMessage || '账号已被禁用，请联系管理员'
+        if (isLoginRequest(config)) {
+          notify(msg, 'error')
+        } else {
+          redirectToLogin(msg)
+        }
+        return Promise.reject(error)
+      }
+      // 40102：账号密码错误，只在登录页出现
+      if (code === ERROR_CODE.BAD_CREDENTIALS) {
         notify(serverMessage || '用户名或密码错误', 'error')
         return Promise.reject(error)
       }

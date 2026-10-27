@@ -81,6 +81,23 @@ function makeUi(page) {
     messageText: async () => (await page.locator('.el-message').first().innerText()).trim(),
     /** 分页总数文案 */
     paginationTotal: () => page.locator('.el-pagination .el-pagination__total'),
+    /** 顶栏用户信息（角色徽标在其中），点开下拉即登出入口 */
+    userInfo: () => page.locator('.layout-header .user-info').first(),
+    /**
+     * 登出：点顶栏用户信息 → 下拉项「退出登录」→ 二次确认弹窗点「退出」。
+     * 下拉项渲染在 teleport 的 popper 里，必须先点触发器；MainLayout.handleCommand 还有一层
+     * ElMessageBox.confirm，不点确认则不会真正清凭证（漏这步会让"登出后回登录页"的用例失败）。
+     */
+    logout: async () => {
+      await page.locator('.layout-header .user-info').first().click()
+      await page.locator('.el-dropdown-menu__item', { hasText: '退出登录' }).first().click()
+      await page.locator('.el-message-box__btns .el-button--primary', { hasText: '退出' }).first().click()
+      await expect(page).toHaveURL(/\/login/)
+    },
+    /** 左侧菜单分组标题（.el-sub-menu__title 文本）集合，用于断言角色菜单可见性 */
+    menuGroups: () => page.locator('.el-sub-menu__title'),
+    /** 左侧菜单项文本集合 */
+    menuItems: () => page.locator('.el-menu-item'),
     /** 左侧菜单跳转 */
     menu: (name) => page.locator('.el-menu-item', { hasText: name }).first(),
     /** 子菜单展开：先点分组标题 */

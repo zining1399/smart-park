@@ -217,6 +217,9 @@ function handleSizeChange() {
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const formRef = ref(null)
+// 后端 VisitorCreateRequest.area 已加 @NotBlank（不传会返 40001「授权区域不能为空」），
+// 且取值区分大小写、只能为四个区域之一，因此新建时默认选中第一项，避免"忘记选"直接被服务端拒
+const DEFAULT_AREA = dict.areas[0] || ''
 const emptyForm = {
   id: null,
   visitorName: '',
@@ -226,7 +229,7 @@ const emptyForm = {
   hostName: '',
   hostDept: '',
   reason: '',
-  area: '',
+  area: DEFAULT_AREA,
   appointTime: '',
   expireTime: ''
 }
@@ -254,7 +257,21 @@ const rules = computed(() => ({
   hostName: [{ required: true, message: '请输入被访人', trigger: 'blur' }],
   hostDept: [{ required: true, message: '请输入被访部门', trigger: 'blur' }],
   reason: [{ required: true, message: '请输入来访事由', trigger: 'blur' }],
-  area: [{ required: true, message: '请选择访问区域', trigger: 'change' }],
+  // area 服务端已升级为必填（@NotBlank）+ 取值白名单（@Pattern，大小写敏感），
+  // 前端同样卡死在字典四值内，避免手填/字典变更导致 40001
+  area: [
+    { required: true, message: '请选择访问区域', trigger: 'change' },
+    {
+      validator: (rule, value, callback) => {
+        if (!value || dict.areas.includes(value)) {
+          callback()
+        } else {
+          callback(new Error(`访问区域只能是：${dict.areas.join(' / ')}`))
+        }
+      },
+      trigger: 'change'
+    }
+  ],
   appointTime: [{ required: true, message: '请选择预约时间', trigger: 'change' }],
   expireTime: [
     { required: true, message: '请选择失效时间', trigger: 'change' },
