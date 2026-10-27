@@ -1,6 +1,6 @@
 模块,用例ID,方法,路径,管理员期望,门岗期望,仓管期望,未登录期望,入merge门禁,备注
 鉴权,TC-AUTH-01,POST,/api/auth/login,0,0,0,0,Y,免鉴权；错密码返回 40102
-鉴权,TC-AUTH-01,POST,/api/auth/refresh,0,0,0,0,Y,免鉴权；token 无效返回 40101
+鉴权,TC-AUTH-01,POST,/api/auth/refresh,0,0,0,0,Y,免鉴权：permitAll 须早于 /auth/** 规则(M2 已修复)；token 无效返回 40101
 鉴权,TC-AUTH-01,GET,/api/auth/me,0,0,0,40101,Y,
 员工,TC-AUTH-03,GET,/api/employees,0,0,40301,40101,Y,
 员工,TC-AUTH-03,GET,/api/employees/{id},0,0,40301,40101,Y,
@@ -14,8 +14,8 @@
 车辆,TC-AUTH-03,DELETE,/api/vehicles/{id},0,40301,40301,40101,Y,仅管理员
 权限,TC-AUTH-03,GET,/api/permissions,0,0,40301,40101,Y,
 权限,TC-AUTH-03,GET,/api/permissions/{id},0,0,40301,40101,Y,
-权限,TC-AUTH-03,POST,/api/permissions,0,40301,40301,40101,Y,门岗只读
-权限,TC-AUTH-03,PUT,/api/permissions/{id},0,40301,40301,40101,Y,门岗只读
+权限,TC-AUTH-03,POST,/api/permissions,0,0,40301,40101,Y,门岗可现场授权(登记-授权-通行闭环)；客户待确认：现场授权 vs 集中管理
+权限,TC-AUTH-03,PUT,/api/permissions/{id},0,0,40301,40101,Y,同上
 权限,TC-AUTH-03,DELETE,/api/permissions/{id},0,40301,40301,40101,Y,仅管理员
 门禁,TC-AUTH-04,GET,/api/access-records,0,0,40301,40101,Y,
 门禁,TC-AUTH-04,POST,/api/access-records/simulate,0,0,40301,40101,Y,仓管不得模拟通行
@@ -26,8 +26,8 @@
 访客,TC-AUTH-03,DELETE,/api/visitors/{id},0,0,40301,40101,Y,
 访客,TC-AUTH-03,POST,/api/visitors/{id}/check-in,0,0,40301,40101,Y,
 访客,TC-AUTH-03,POST,/api/visitors/{id}/check-out,0,0,40301,40101,Y,
-物资,TC-AUTH-03,GET,/api/materials,0,0,0,40101,Y,
-物资,TC-AUTH-03,GET,/api/materials/{id},0,0,0,40101,Y,
+物资,TC-AUTH-03,GET,/api/materials,0,40301,0,40101,Y,门岗不进物资模块(裁决)；物资编码与价值信息不对门岗开放
+物资,TC-AUTH-03,GET,/api/materials/{id},0,40301,0,40101,Y,同上(明细与列表同口径,待 backend 确认是否同为 /materials/** 匹配)
 物资,TC-AUTH-03,POST,/api/materials,0,40301,0,40101,Y,
 物资,TC-AUTH-03,PUT,/api/materials/{id},0,40301,0,40101,Y,
 物资,TC-AUTH-03,DELETE,/api/materials/{id},0,40301,0,40101,Y,

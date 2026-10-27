@@ -10,9 +10,36 @@ import { API } from './api.js'
  * 说明：M2 落地鉴权后，token 键名（E2E_TOKEN_KEY）与登录接口路径需与 backend 对齐，本文件已做成可配置。
  */
 const ROLE_ENV = {
-  admin: { user: 'E2E_USER_ADMIN', pass: 'E2E_PASS_ADMIN' },
-  gate: { user: 'E2E_USER_GATE', pass: 'E2E_PASS_GATE' },
-  stock: { user: 'E2E_USER_STOCK', pass: 'E2E_PASS_STOCK' }
+  admin: { user: 'E2E_USER_ADMIN', pass: 'E2E_PASS_ADMIN', role: 'ADMIN' },
+  gate: { user: 'E2E_USER_GATE', pass: 'E2E_PASS_GATE', role: 'GATE' },
+  stock: { user: 'E2E_USER_STOCK', pass: 'E2E_PASS_STOCK', role: 'STORE' }
+}
+
+/** 凭证三件套（M2 前端实测口径）：access / refresh / user(JSON)，缺一会被引导逻辑踢回登录页 */
+const TOKEN_KEYS = {
+  token: () => process.env.E2E_TOKEN_KEY || 'sp_token',
+  refresh: () => process.env.E2E_REFRESH_KEY || 'sp_refresh',
+  user: () => process.env.E2E_USER_KEY || 'sp_user'
+}
+
+/** 一键把凭证三件套写进 localStorage（addInitScript 覆盖首屏，evaluate 覆盖当前页） */
+async function injectCredentials(page, token, refreshToken, userJson) {
+  const payload = [
+    [TOKEN_KEYS.token(), token],
+    [TOKEN_KEYS.refresh(), refreshToken],
+    [TOKEN_KEYS.user(), userJson]
+  ].filter(([, v]) => v)
+  if (!payload.length) return
+
+  const write = ([entries]) => {
+    try {
+      for (const [k, v] of entries) window.localStorage.setItem(k, v)
+    } catch {
+      /* 无痕模式忽略 */
+    }
+  }
+  await page.addInitScript(write, [payload])
+  await page.evaluate(write, [payload])
 }
 
 /** Element Plus 通用交互helper（选择器以项目现有 .vue 为准，不引入 test-id 依赖） */
@@ -97,37 +124,29 @@ export const test = base.extend({
         return null
       }
 
-      // 路径 A（默认）：接口登录 + 注入 token，跳过 UI 登录步骤
+      // 路径 A（默认）：接口登录 + 注入凭证三件套，跳过 UI 登录步骤
       let token = direct || null
+      let refreshToken = process.env.E2E_REFRESH_TOKEN || null
+      let userJson = null
       if (!token && username && password) {
         const res = await api.login(api.ctx, apiURL, username, password)
-        const data = await api.parse(res)
-        token = data?.data?.token || data?.data?.accessToken || null
+        const { data } = await api.parse(res)
+        token = data?.token || data?.accessToken || null
+        refreshToken = data?.refreshToken || refreshToken
+        // sp_user 存的是扁平 JSON：{"username","realName","role"}，与前端引导逻辑一致
+        userJson = data?.user ? JSON.stringify(data.user) : null
+      }
+      if (!userJson && username) {
+        // 后端不可达时的兜底：直接按角色造一份，避免 /auth/me 401 把用例踢回登录页
+        userJson = JSON.stringify({
+          username,
+          realName: username,
+          role: ROLE_ENV[role].role
+        })
       }
       await page.goto('/')
-      if (token) {
-        await page.addInitScript(
-          ([key, value]) => {
-            try {
-              window.localStorage.setItem(key, value)
-            } catch {
-              /* 无痕模式忽略 */
-            }
-          },
-          [process.env.E2E_TOKEN_KEY || 'token', token]
-        )
-        await page.evaluate(
-          ([key, value]) => {
-            try {
-              window.localStorage.setItem(key, value)
-            } catch {
-              /* 忽略 */
-            }
-          },
-          [process.env.E2E_TOKEN_KEY || 'token', token]
-        )
-        await page.reload()
-      }
+      await injectCredentials(page, token, refreshToken, userJson)
+      await page.reload()
       await expect(page).toHaveURL(/\/dashboard/)
       return token
     }
