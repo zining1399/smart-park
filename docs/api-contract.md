@@ -16,13 +16,14 @@
 | empNo | String | 工号，唯一 |
 | name | String | 姓名 |
 | dept | String | 部门 |
-| phone | String | 手机号 |
+| phone | String | 手机号密文，**禁止前端渲染**，展示请用 `phoneMask` |
+| phoneMask | String | 手机号掩码（前 3 后 4，如 `138****1234`），只读 |
 | status | String | 在职 / 离职 |
 
 - `GET /employees`（条件：name、dept、status）分页
 - `GET /employees/{id}`
 - `POST /employees` 新增（body 为 Employee，无 id）
-- `PUT /employees/{id}` 修改
+- `PUT /employees/{id}` 修改：**工号 empNo 不可修改**（服务端以库中值为准，入参携带也忽略）
 - `DELETE /employees/{id}`
 
 ### 车辆 Vehicle
@@ -73,8 +74,10 @@
 |---|---|---|
 | id | Long | |
 | visitorName | String | 访客姓名 |
-| idCard | String | 身份证（存储全量，接口返回脱敏：前6后4） |
-| phone | String | |
+| idCard | String | 身份证密文，**禁止前端渲染**，展示请用 `idCardMask` |
+| idCardMask | String | 身份证掩码（前 6 后 4），只读 |
+| phone | String | 手机号密文，**禁止前端渲染**，展示请用 `phoneMask` |
+| phoneMask | String | 手机号掩码（前 3 后 4），只读 |
 | plateNo | String | 访客车牌（可空） |
 | hostName | String | 被访人 |
 | hostDept | String | 被访部门 |
@@ -115,7 +118,7 @@
 | id | Long | |
 | materialCode | String | |
 | materialName | String | |
-| type | String | IN / OUT / RETURN |
+| type | String | IN / OUT（裁决 15：**无 RETURN**，归还写 returnTime，type 不变） |
 | borrower | String | 领用人（IN 时可空） |
 | dept | String | 领用部门 |
 | approveStatus | String | 免审 / 待审批 / 已批准 / 已驳回 |
@@ -162,3 +165,76 @@
 ```
 - `GET /dashboard/access-trend` → 近 7 天通行量：`{ "dates": ["10-20",...], "inCounts": [...], "outCounts": [...] }`
 - `GET /dashboard/material-status` → `[{ "status": "在库", "count": 40 }, ...]`
+
+---
+
+## 六、敏感字段与掩码契约（裁决 17）— 命名已冻结
+
+**加密范围**：`visitor.id_card`、`visitor.phone`、`employee.phone`。
+落库三列：`xxx`（AES-256-GCM 密文）+ `xxx_hash`（HMAC-SHA256，等值检索）+ `xxx_mask`（掩码，展示）。
+
+### 字段命名（唯一口径，前后端与 DB 三层对照）
+
+| 语义 | **JSON 字段名**（前端用这个） | DB 列名（SQL / DDL 用这个） |
+|---|---|---|
+| 身份证掩码 | `idCardMask` | `id_card_mask` |
+| 手机号掩码 | `phoneMask` | `phone_mask` |
+| 身份证密文 | `idCard` | `id_card` |
+| 手机号密文 | `phone` | `phone` |
+
+> **冻结说明**：JSON 一律**驼峰**（Jackson 未启用 snake_case 策略，实体字段即驼峰）。
+> 历史上出现过的 `phone_mask` 说法指的是 **DB 列名**，不是 JSON 字段名——这是本次命名不一致的根因，现以本表为准，前端不得再做 `phoneMask \|\| phone_mask` 双读容错。
+
+### 读写口径（三条硬约束）
+
+1. **出参永不返回明文或密文**：列表/详情接口把 `idCard`、`phone` 替换为对应 `*_mask` 值，`*_hash` 恒为 `null`（不外泄）。前端若直接渲染 `phone` / `idCard` 会看到 base64 乱码，属硬性 No-Go。
+2. **入参接受明文**：`POST` / `PUT` 传 11 位明文手机号（或 18 位身份证）即正常加密写入；**管理员可以正常修改手机号**，不存在"改不了"的隐性缺陷。
+3. **入参传掩码 = 不更新该字段**（不报错）：服务端识别含 `*` 的值后丢弃该字段（B05 三层防护之服务端层）。因此前端"用户没改就把掩码原样回传"是安全的，**也推荐提交前直接剔除该字段**，两者行为等价。
+
+### 不可变业务唯一键（改了会悬挂引用）
+
+| 资源 | 不可变字段 | 前端要求 |
+|---|---|---|
+| 员工 | `empNo` | 编辑态禁用 + 提交剔除 |
+| 车辆 | `plateNo` | 同上 |
+| 物资 | `code`、`status`（status 由出入库流程维护） | 同上 |
+
+## 七、鉴权与权限矩阵（最小鉴权，已冻结）
+
+- 登录 `POST /auth/login`（匿名）→ `{ token, refreshToken, ... }`；`POST /auth/refresh` **免鉴权**（否则双 token 链路自断）。
+- 凭证：`Authorization: Bearer <token>`；access 2 小时，refresh 7 天。
+- 三角色：`ADMIN` 管理员 / `GATE` 门岗 / `STORE` 仓管。
+- 账号禁用**即时生效**（每次请求查库校验 `status='启用'`），被禁用回 `40103`。
+
+| 端点 | ADMIN | GATE | STORE |
+|---|---|---|---|
+| `GET /employees`、`GET /vehicles` | ✓ | ✓ | ✗ |
+| `POST/PUT/DELETE /employees`、`/vehicles` | ✓ | ✗ | ✗ |
+| `GET /permissions` | ✓ | ✓ | ✗ |
+| `POST /permissions`、`PUT /permissions/{id}` | ✓ | ✓ | ✗ |
+| `DELETE /permissions/{id}` | ✓ | ✗ | ✗ |
+| `/access-records/**`（含 simulate） | ✓ | ✓ | ✗ |
+| `/visitors/**`（含 check-in / check-out） | ✓ | ✓ | ✗ |
+| `/materials/**` | ✓ | ✗ | ✓ |
+| `GET /stock-records`、`POST /in`、`/out`、`/{id}/return` | ✓ | ✗ | ✓ |
+| `POST /stock-records/{id}/approve` | ✓ | ✗ | ✗（严格仅管理员，防仓管自我审批） |
+| `/alarms/**`、`/dashboard/**`、`/auth/**` | ✓ | ✓ | ✓ |
+
+> `POST/PUT /permissions` 给门岗的理由：门岗登记访客后必须能发权限/改有效期，否则业务链条断裂。
+> `DELETE` 收归管理员的理由：撤销风险高，且权限到期会自动失效，无需门岗手工删。
+
+### 错误码（已冻结，前端直接映射文案）
+
+| code | HTTP | 含义 |
+|---|---|---|
+| 0 | 200 | 成功 |
+| 40001 | 400 | 参数错误 / 业务校验失败 |
+| 40101 | 401 | 未登录或凭证无效 |
+| 40102 | 401 | 用户名或密码错误 |
+| 40103 | 401 | 账号已被禁用 |
+| 40301 | 403 | 无操作权限 |
+| 40401 | 404 | 资源不存在 |
+| 40901 | 409 | 冲突（唯一键重复 / 状态已变更） |
+| 50001 | 500 | 系统繁忙 |
+
+响应体额外带 `traceId`（同时回写 `X-Trace-Id` 响应头），报错时请一并展示便于排查。
