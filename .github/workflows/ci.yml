@@ -1,0 +1,149 @@
+name: smart-park CI
+
+# 触发：主干/开发分支推送与 PR、语义化版本 tag
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main, develop]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}    # owner/smart-park
+
+jobs:
+  # ---------------------------------------------------------------- 后端
+  backend:
+    name: 后端构建与测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven                     # Maven 依赖缓存
+      - name: 编译 + 单元测试
+        working-directory: smart-park-backend
+        run: mvn -B clean verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: smart-park-backend/target/*.jar
+          retention-days: 7
+
+  # ---------------------------------------------------------------- 前端
+  frontend:
+    name: 前端构建与测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: npm
+          cache-dependency-path: smart-park-frontend/package-lock.json
+      - name: 依赖安装
+        working-directory: smart-park-frontend
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "::warning::未发现 package-lock.json，回退 npm install；请尽快提交 lock 文件"
+            npm install
+          fi
+      - name: 前端测试（用例就绪后自动生效）
+        working-directory: smart-park-frontend
+        run: npm run test --if-present
+      - name: 构建
+        working-directory: smart-park-frontend
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: smart-park-frontend/dist
+          retention-days: 7
+
+  # ---------------------------------------------------------------- 镜像
+  images:
+    name: 镜像构建与推送
+    needs: [backend, frontend]              # 质量门禁：测试不过不出镜像
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix={{branch}}-
+      - name: 构建并推送后端镜像
+        id: build_backend
+        uses: docker/build-push-action@v6
+        with:
+          context: smart-park-backend
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:${{ steps.meta.outputs.version }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+      - name: 构建并推送前端镜像
+        id: build_frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: smart-park-frontend
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:${{ steps.meta.outputs.version }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      # ★ 镜像自检：backend 容器 healthcheck 依赖 curl，
+      #   缺失会导致容器永远 unhealthy → frontend 因 depends_on 永不启动
+      - name: 镜像自检（curl 存在性）
+        run: |
+          IMG=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:${{ steps.meta.outputs.version }}
+          docker pull "$IMG"
+          docker run --rm "$IMG" which curl
+          echo "✅ 镜像内含 curl，healthcheck 可用"
+
+  # ---------------------------------------------------------------- 交付包
+  release:
+    name: 发布离线交付包（人工审批）
+    needs: images
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: production                 # 在 GitHub Environments 配置 required reviewer
+    steps:
+      - uses: actions/checkout@v4
+      - name: 打包离线交付物（镜像 tar + compose 全套）
+        run: |
+          V=${GITHUB_REF_NAME#v}
+          P=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}
+          docker pull "$P-backend:$V"
+          docker pull "$P-frontend:$V"
+          docker pull mysql:8.0.39
+          mkdir -p release/images release/scripts
+          docker save "$P-backend:$V" "$P-frontend:$V" mysql:8.0.39 \
+            | gzip > release/images/smart-park-images.tar.gz
+          cp docker-compose.yml .env.example release/
+          cp -r mysql release/
+          cp -r scripts release/
+          echo "APP_VERSION=$V" >> release/.env.example
+          echo "VERSION=$V" > release/VERSION.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smart-park-release-${{ github.ref_name }}
+          path: release
+          retention-days: 90

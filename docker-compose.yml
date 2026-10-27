@@ -1,0 +1,121 @@
+# ============================================================================
+# smart-park 客户现场部署 —— compose 冻结版（v1.4.2）
+#
+# 设计约束（改动前请先读 docs/ops/runbook.md 的「变更红线」）：
+#   1. 全栈对外只有 Nginx 一个入口：3306 / 8080 均不发布到宿主机
+#   2. 敏感配置全部来自 .env（现场生成，不进 git、不进镜像）
+#   3. networks.ipam 段的变量只在 compose 层解析，不会注入容器 env；
+#      init 脚本用到的变量必须在 mysql.environment 里显式注入（漏注入=首次部署明确报错）
+#   4. 回滚 = 改 .env 的 APP_VERSION 后重建 backend/frontend 容器（<30 秒）
+# ============================================================================
+name: smart-park
+
+services:
+  # ---------------------------------------------------------------- 数据库
+  mysql:
+    image: mysql:8.0.39                    # ≥8.0.16（CHECK 约束 / utf8mb4_0900_ai_ci 生效）
+    container_name: smart-park-mysql
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-smart_park}
+      # ↓↓↓ init 脚本（mysql/init/01-accounts.sh）所需变量，必须与授权 host 段同源
+      SP_NET_SUBNET: ${SP_NET_SUBNET:-172.28.0.0/24}
+      MYSQL_APP_USER: ${MYSQL_APP_USER:-smartpark_app}
+      MYSQL_MIG_USER: ${MYSQL_MIG_USER:-smartpark_mig}
+      MYSQL_BAK_USER: ${MYSQL_BAK_USER:-smartpark_bak}
+      MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD}
+      MYSQL_MIG_PASSWORD: ${MYSQL_MIG_PASSWORD}
+      MYSQL_BAK_PASSWORD: ${MYSQL_BAK_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql           # 数据持久化：容器删除重建不丢数据
+      - ./mysql/my.cnf:/etc/mysql/conf.d/smart-park.cnf:ro
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro   # 仅首次建卷执行
+      - ./mysql/bak.cnf:/run/secrets/bak.cnf:ro       # 备份凭证（scripts/init-secrets.sh 生成）
+    # 3306 不发布到宿主机：备份/DBA/数据导入统一走 docker exec（socket）
+    healthcheck:
+      # socket 连接（不写 -h，skip-name-resolve 下最稳）；密码走 MYSQL_PWD，不落 docker inspect
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -u root"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    networks:
+      - smart-park-net
+
+  # ---------------------------------------------------------------- 后端
+  backend:
+    image: smart-park-backend:${APP_VERSION:-1.0.0}
+    build: ./smart-park-backend
+    container_name: smart-park-backend
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      SPRING_PROFILES_ACTIVE: prod
+      # 不写 characterEncoding：跟随服务端 utf8mb4（避免 utf8 = utf8mb3 残缺映射）
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-smart_park}?useUnicode=true&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&connectionCollation=utf8mb4_0900_ai_ci&allowMultiQueries=false
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_APP_USER:-smartpark_app}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_APP_PASSWORD}
+      # Flyway 使用迁移专用账号（含 DDL 权限），运行时账号无 DDL 权限
+      SPRING_FLYWAY_USER: ${MYSQL_MIG_USER:-smartpark_mig}
+      SPRING_FLYWAY_PASSWORD: ${MYSQL_MIG_PASSWORD}
+      # 应用级配置（SMARTPARK_ 前缀；基础设施用 Spring 标准变量）
+      SMARTPARK_JWT_SECRET: ${SMARTPARK_JWT_SECRET}
+      SMARTPARK_CORS_ORIGINS: ${SMARTPARK_CORS_ORIGINS:-}
+      SMARTPARK_CRYPTO_KEY: ${SMARTPARK_CRYPTO_KEY:-}
+      SMARTPARK_CRYPTO_HMAC_KEY: ${SMARTPARK_CRYPTO_HMAC_KEY:-}
+      # 默认仅暴露 health；选装监控时设 health,metrics,prometheus（需同步放行内网抓取源）
+      ACTUATOR_EXPOSE: ${ACTUATOR_EXPOSE:-health}
+      JAVA_OPTS: ${JAVA_OPTS:--XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai}
+    depends_on:
+      mysql:
+        condition: service_healthy          # 等 MySQL 就绪后再启动（Flyway 迁移在其后）
+    volumes:
+      - ./logs/backend:/app/logs            # 结构化日志落宿主机持久化
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    # 8080 不对宿主机发布，仅 compose 内网给 nginx 反代
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s                    # 首次启动含 Flyway 迁移，给足时间
+    networks:
+      - smart-park-net
+
+  # ---------------------------------------------------------------- 前端
+  frontend:
+    image: smart-park-frontend:${APP_VERSION:-1.0.0}
+    build: ./smart-park-frontend
+    container_name: smart-park-frontend
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"              # 唯一对外入口
+    depends_on:
+      backend:
+        condition: service_healthy          # 首启等 Flyway 迁移完成后才放流量
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - smart-park-net
+
+volumes:
+  mysql-data:
+    name: smart-park-mysql-data             # 销毁此卷 = 数据不可恢复，仅恢复演练可执行
+
+networks:
+  smart-park-net:
+    name: smart-park-net
+    driver: bridge
+    ipam:
+      config:
+        # 若客户 LAN 已占用 172.28.x，改 .env 的 SP_NET_SUBNET（授权 host 段会自动联动）
+        - subnet: ${SP_NET_SUBNET:-172.28.0.0/24}
