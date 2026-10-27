@@ -59,7 +59,7 @@ management:
 
 前端 `.env.*`：`VITE_API_BASE_URL=/api`（同域反代默认）。
 
-**数据安全红线**：生产库结构唯一来源是 Flyway `V1__init_mysql.sql`（无 DROP，由 data-engineer 出，见附录 03）；`mode: never`；MySQL 命名卷持久化；每日 02:00 备份（发布窗口避开 02:00±1h，`--single-transaction` 与 Flyway DDL 并发有风险）。
+**数据安全红线**：生产库结构唯一来源是 Flyway `V1__init_mysql.sql`（无 DROP，由 data-engineer 出，见附录 03）；`mode: never`；MySQL 命名卷持久化；每日 **02:30** 备份【口径变更：本评审稿原定 02:00，全队统一改为 02:30，与 `scripts/backup.sh` 的 crontab `30 2 * * *` 及巡检"mtime<25h"断言一致；注意区分——下文的"发布窗口避开 02:00±1h"是**发布窗口**口径，不是备份时间，不要一起改】（发布窗口避开 02:00±1h，`--single-transaction` 与 Flyway DDL 并发有风险）。
 
 ## 2. 容器化
 
@@ -352,7 +352,7 @@ ACTUATOR_EXPOSE=health               # 选装监控时切 health,metrics,prometh
 
 ```bash
 #!/bin/bash
-# /opt/smart-park/scripts/backup.sh —— crontab 每日 02:00
+# /opt/smart-park/scripts/backup.sh —— crontab 每日 02:30（原稿 02:00，全队统一为 02:30，即 `30 2 * * *`）
 set -euo pipefail
 DATE=$(date +%Y%m%d_%H%M)
 DIR=/opt/smart-park/backup

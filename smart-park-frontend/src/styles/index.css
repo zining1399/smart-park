@@ -1,0 +1,45 @@
+/* 全局样式：深色侧边栏 + 浅色内容区的经典后台风格 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
+}
+
+body {
+  background-color: #f0f2f5;
+}
+
+/* 内容区白色卡片 */
+.page-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+/* 搜索表单区域 */
+.search-bar {
+  margin-bottom: 4px;
+}
+
+/* 表格上方工具条 */
+.table-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+/* 分页右对齐 */
+.table-footer {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}

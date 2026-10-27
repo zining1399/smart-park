@@ -1,0 +1,13 @@
+字段,优先级,非法值_中文错字,非法值_繁体,非法值_小写英文,非法值_尾空格,非法值_空串,期望code,期望HTTP,入merge门禁,备注
+employee.status,P0,再职,在職,,, ,40001,400,Y,API 是最后防线之一
+vehicle.status,P0,正常车,正當,,, ,40001,400,Y,
+vehicle.owner_type,P0,员工工,員工,,, ,40001,400,Y,可空字段，空串按非法处理
+material.status,P0,再库,在庫,,, ,40001,400,Y,
+material.category,P0,工具2,工具類,,, ,40001,400,Y,可空字段
+access_permission.area,P0,厂区,廠區,,, ,40001,400,Y,DB 层亦有 chk_perm_area
+visitor.area,P0,厂区,廠區,,, ,40001,400,Y,DB 层无 CHECK，API 唯一防线
+access_permission.target_type,P1,,,"person","PERSON ", ,40001,400,Y,
+access_record.pass_type,P1,,,"person","PERSON ", ,40001,400,Y,
+access_record.direction,P1,,,"in","IN ", ,40001,400,Y,
+access_record.gate,P1,北门,北門,,,"东门 ",40001,400,Y,API 层 GATE_AREA 拦截
+access_permission.time_range,P1,,,,,,40001,400,Y,非枚举：startTime>endTime 场景

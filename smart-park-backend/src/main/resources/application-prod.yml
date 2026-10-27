@@ -1,0 +1,32 @@
+# 生产环境：全部敏感值来自环境变量，无任何默认口令/密钥兜底（缺失即启动失败，避免"默认口令上生产"）
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${SMARTPARK_DB_HOST}:${SMARTPARK_DB_PORT:3306}/${SMARTPARK_DB_NAME}?connectionCollation=utf8mb4_0900_ai_ci&serverTimezone=Asia/Shanghai&useSSL=${SMARTPARK_DB_SSL:true}&allowPublicKeyRetrieval=false
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  flyway:
+    enabled: true
+    # 生产禁止 clean（防误删库）
+    clean-disabled: true
+    # 生产关闭自动打基线：非空库直接报错暴露，避免"V1 被标成已执行却结构对不上"的静默事故
+    baseline-on-migrate: false
+    locations: classpath:db/migration
+  sql:
+    init:
+      mode: never
+  # H2 控制台生产必须关闭
+  h2:
+    console:
+      enabled: false
+
+logging:
+  level:
+    root: info
+    com.smartpark: info

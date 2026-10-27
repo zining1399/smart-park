@@ -33,6 +33,7 @@ services:
       - ./mysql/my.cnf:/etc/mysql/conf.d/smart-park.cnf:ro
       - ./mysql/init:/docker-entrypoint-initdb.d:ro   # 仅首次建卷执行
       - ./mysql/bak.cnf:/run/secrets/bak.cnf:ro       # 备份凭证（scripts/init-secrets.sh 生成）
+      - ./mysql/mig.cnf:/run/secrets/mig.cnf:ro       # 迁移/导入凭证（同上；备份账号无 INSERT 权限）
     # 3306 不发布到宿主机：备份/DBA/数据导入统一走 docker exec（socket）
     healthcheck:
       # socket 连接（不写 -h，skip-name-resolve 下最稳）；密码走 MYSQL_PWD，不落 docker inspect

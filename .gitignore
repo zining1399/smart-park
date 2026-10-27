@@ -37,5 +37,6 @@ coverage/
 
 # ===== 本地生成的数据库凭证（scripts/init-secrets.sh 生成，含明文密码）=====
 mysql/bak.cnf
+mysql/mig.cnf
 logs/
 backup/

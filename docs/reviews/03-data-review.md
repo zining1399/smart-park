@@ -503,7 +503,7 @@ mybatis-plus:
 1 年 ≈ 365 万行 / 0.5GB；3 年 ≈ 1095 万行 / 1.5GB。**无需分库分表、无需分区，只需归档**（单表超 2000 万行再评估分区，分区需改主键含分区列）。
 
 ### 10.2 备份策略
-每日 02:00 `mysqldump --single-transaction --master-data=2 --routines --triggers --set-gtid-purged=OFF | gzip`；binlog（ROW/MINIMAL）连续归档支撑 PITR；日全量保留 30 天 + 月全量 12 个月 + binlog 7 天；`innodb_flush_log_at_trx_commit=1` + `sync_binlog=1`；异地/离线一份防勒索；**备份窗口必须避开发布时间**（`--single-transaction` 与 Flyway DDL 并发有风险）。
+每日 **02:30** `mysqldump --single-transaction --master-data=2 --routines --triggers --set-gtid-purged=OFF | gzip`（crontab `30 2 * * *`，已与运维落地的 `scripts/backup.sh` 对齐；巡检断言"备份文件 mtime < 25h 即 P1"亦按 02:30 校准）；binlog（ROW/MINIMAL）连续归档支撑 PITR；日全量保留 30 天 + 月全量 12 个月 + binlog 7 天；`innodb_flush_log_at_trx_commit=1` + `sync_binlog=1`；异地/离线一份防勒索；**发布窗口避开 02:00±1h**（`--single-transaction` 与 Flyway DDL 并发有风险）——注意"发布窗口避开 02:00±1h"与"备份 02:30"是两个不同口径，前者是发布约束，不要一起改。
 
 ### 10.3 RPO / RTO
 【终稿裁决 9 修正】分层承诺：基础档 RPO 24h / RTO 4h（默认交付）；高保障档 RPO 15min / RTO 30min（客户选购，本文 binlog 方案为实现基础）。
@@ -531,3 +531,134 @@ mybatis-plus:
 ## 12. 待确认清单
 
 ① 客户 MySQL 版本（<8.0.16 走降级附注）② 服务器时区 ③ 数据量级（员工/车辆/日通行/物资）④ 物资量级 ⑤ 一人一区多条权限业务口径 ⑥ 留存合规期 ⑦ SLA ⑧ 一物一码 vs 批量数量 ⑨ 部署实例数 ⑩ H2 存量数据有无 ⑪ `idx_sr_overdue_scan` EXPLAIN 实测。
+
+---
+
+## 13. V1 落地变更说明（实施阶段补记，储海量）
+
+> 本节记录**本评审稿 → `db/migration/V1__init.sql` 实际落地**之间的全部差异与原因。
+> 评审稿正文（§1~§12）保持不变，**落地以本节 + 两个 ops 文件为准**。
+> 配套文件：`smart-park-backend/src/main/resources/db/migration/V1__init.sql`、`docs/ops/archive.sql`、`docs/ops/migration-h2-to-mysql.md`。
+
+### 13.0 三项待确认已闭环（①②③）
+
+| 原待确认项 | 结论 | 连带影响 |
+|---|---|---|
+| ① MySQL 版本 | **确认为 8.0（≥8.0.16）** | CHECK 约束与 `utf8mb4_0900_ai_ci` 均可用；**§七的 5.7 降级附注作废**，不再需要"3 条变换规则 + `DROP CHECK` 语法错误陷阱" |
+| ② 服务器时区 | **统一 `Asia/Shanghai`**（OS 层 / my.cnf / JDBC `serverTimezone` / Jackson 四层） | DATETIME 不做时区转换这一选择的最后一块短板补齐 |
+| ③ 数据量级 | **员工 3000 / 车辆 500 / 日均通行 ≤ 1 万** | 3 年约 1095 万行 ≈ 1.5GB，**不分区、不分表，只归档**（§10.1 结论维持） |
+
+### 13.1 相对评审稿的 11 处落地变更
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | **PII 三列加密从 Phase 2 提前到 V1 基线**（裁决 17） | 不留"明文先行、后补加密"的窗口期。客户一旦录入真实身份证，回溯加密要把历史明文全部扫一遍，代价远高于一开始就是密文 |
+| 2 | `visitor.id_card` / `visitor.phone` / `employee.phone`：**原列名存密文**（VARCHAR(255)），新增 `<列名>_hash CHAR(64)` + `<列名>_mask VARCHAR(32)` | 原列名承载密文 → MyBatis-Plus 实体与 8 个 Mapper **零改动**（它们全是空接口，无自定义 SQL）。密文长度约 64 字节，给到 255 留足余量 |
+| 3 | **`Employee` 无身份证字段**（已复核 `Employee.java`：仅 `id/empNo/name/dept/phone/status`） | 只有 `employee.phone` 走三列；不存在 `employee.id_card*`。若客户后续要求登记员工证件，需走 V2 加列 |
+| 4 | **明令禁用 MySQL `AES_ENCRYPT()`**，加解密全部在 Java 层，密钥来自 `SMARTPARK_CRYPTO_KEY` / `SMARTPARK_CRYPTO_HMAC_KEY` | `AES_ENCRYPT()` 的密钥写在 SQL 文本里，会落进 binlog、慢日志、performance_schema，等于把密钥备份到所有能读日志的人手里 |
+| 5 | **CHECK 最终 20 条**，表 9 张主表 + 2 张归档表；`chk_ar_gate` 删除、`chk_perm_time_range` 补建、`sys_user` 新增、5 条约束改名对齐 QA 断言矩阵 | `chk_ar_gate` 按裁决删除（应用层 `GATE_AREA` 已拦，加 CHECK 会让客户新增道闸变成改表 DDL）；`alarm.type` 不纳入（由代码常量生成、不接收外部输入，且新增告警类型是正常扩展，加 CHECK 会阻塞扩展）。见下方 5a / 5b / 5c |
+| 6 | **归档表先 `CREATE TABLE ... LIKE` 再 `DROP CHECK`** | LIKE 会连 CHECK 一起复制。不解耦的话，主表规则将来收紧（如删掉某个枚举值）时，归档作业会被归档表自己的约束拒绝，表现为**静默归档失败** |
+| 7 | `deleted` / `version` 只加在 **6 张主数据表**（employee / vehicle / access_permission / visitor / material / alarm），**2 张流水表不加** | 流水不可删除、生命周期只走归档；给流水加逻辑删除会诱导"删流水"这种错误用法 |
+| 8 | **V1 只落 `deleted` 列，不做过滤** | 半套逻辑删除最危险：查不到却仍占唯一键。等 P2 配合 `@TableLogic` 一起启用 |
+| 9 | **唯一键维持原样**（`uk_employee_emp_no` / `uk_vehicle_plate_no` / `uk_material_code`），软删除与唯一键的冲突延后 | 冲突解法是 P2 的 `(xxx, deleted_at)`（`deleted_at DATETIME`，时间戳永不撞键 + 自带删除审计），V1 不引入 `deleted_at` |
+| 10 | **路径 B 的导入机制改为 CSV → INSERT → 管道**，`LOAD DATA LOCAL INFILE` 全部移除 | MySQL 8 默认 `local_infile=OFF`（ERROR 1148/3948）。此外 3306 已不对外暴露、`LOADDATA` 服务端文件模式还要动 `secure_file_priv`，为一次性迁移扩大生产库攻击面不划算 |
+| 11 | **校验②的断言内容作废并替换** | 原断言 `pass_time IS NULL` 行数为 0，在直插方案下**恒为 0，是空断言**。替换为：导入 stderr 必须 0 字节 + 源端时间列正则预检 + 目标端 `0000-00-00` 兜底计数 |
+| 12 | **转换环节统一复用 `scripts/csv-to-inserts.py`**，本手册不再自带转换器；`id` 不进列清单走自增 | 与「客户 Excel 基础数据导入」是同一条管道，另建第二套会两边漂移。连带修正：H2 导出去掉 `null=\N`（该脚本把空字段映射为 NULL，加哨兵反而会被当成字面 `'\N'`）；`material.valuable` 在导出 SQL 里用 `CASE WHEN ... THEN 1 ELSE 0 END` 转 0/1（H2 导出 `TRUE/FALSE` 直插 TINYINT(1) 在 STRICT 下报 1366）；**不使用 `SET id = NULL`**（主键 `NOT NULL AUTO_INCREMENT`，该写法本身非法） |
+
+**5a · `chk_perm_time_range CHECK (end_time >= start_time)`（补建）**
+`AccessPermission` 确有 `start_time` / `end_time`（已复核实体）。字段已改 DATETIME，加这条成本极低，能挡住"有效期倒挂"这类真实脏数据；API 层校验保留、DB 作兜底，双层不冲突。
+用 **`>=` 而非 `>`**：只拦真倒挂（`end < start`），零时长（`start = end`）放行。拦零时长是业务判断不是数据完整性判断，且客户批量导入历史权限时容易撞上，没必要为它挡住一次导入。
+
+**5b · 5 条约束改名（对齐 QA 的 TC-ENUM 断言矩阵）**
+
+| 原（V1 初稿缩写） | 现（完整表名） |
+|---|---|
+| `chk_emp_status` | `chk_employee_status` |
+| `chk_veh_status` | `chk_vehicle_status` |
+| `chk_veh_owner_type` | `chk_vehicle_owner_type` |
+| `chk_mat_status` | `chk_material_status` |
+| `chk_mat_category` | `chk_material_category` |
+
+约束名会出现在 MySQL 报错与运维排障信息里，完整表名可读性更好。V1 尚未在任何环境执行，改名零迁移成本。
+三个长表名沿用评审稿既有缩写 `chk_perm_*` / `chk_ar_*` / `chk_sr_*`（与 QA 矩阵一致）。
+**⚠ 改约束名必须同步通知 QA**：断言按「错误号 3819 + 约束名」双条件匹配，名字对不上会漏检或误报。
+
+**5c · 新增 `sys_user` 表（最小鉴权，backend 的 `SysUser` 实体严格对齐）**
+M2 鉴权落地需要，V1 原 8 张主表里没有它，缺表会导致首次登录即报错。
+- 字段：`id / username / password_hash VARCHAR(100) / real_name / role / status / create_time / update_time`
+- **不加 `deleted` / `version`**：账号不做软删除（"禁用"即可），登录路径也不需要乐观锁
+- 唯一键 `uk_sys_user_username`；CHECK 两条：`chk_sys_user_role`（`ADMIN`/`GATE`/`STORE`）、`chk_sys_user_status`（`启用`/`禁用`）
+- **登录名大小写不敏感**（沿用 `utf8mb4_0900_ai_ci`）：`admin` 与 `Admin` 视为同一账号。刻意选择——防止形似账号（易混淆 / 冒名）。代价是创建同名不同大小写会撞 **1062**，应用层要把 1062 转成"登录名已存在"的友好提示，不要直接抛 500
+- **无 H2 存量来源**，不参与路径 B 迁移；由应用 `AdminInitializer` 初始化三角色账号
+
+**最终 20 条清单**（`SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_TYPE='CHECK'` 应逐字返回）：
+
+```
+chk_alarm_level            chk_alarm_status           chk_ar_direction
+chk_ar_pass_type           chk_ar_result              chk_employee_status
+chk_material_category      chk_material_status        chk_perm_area
+chk_perm_status            chk_perm_target_type       chk_perm_time_range
+chk_sr_approve_status      chk_sr_type                chk_sys_user_role
+chk_sys_user_status        chk_vehicle_owner_type     chk_vehicle_status
+chk_visitor_area           chk_visitor_status
+```
+
+（归档表 2 张的 CHECK 已在 V1 内 `DROP`，故 `information_schema` 中不含 `*_archive`。）
+
+**表与索引总账**：9 张主表 + 2 张归档表；12 个二级索引 + 5 个唯一键 + 9 个主键。
+
+### 13.2 V1 的禁止项（写进文件头，改动前必读）
+
+1. **不得出现 `DROP TABLE` / `DROP DATABASE` / `DROP INDEX`**（B01 根因）。
+   文件中唯一的 DROP 是归档表的 `ALTER TABLE ... DROP CHECK`。
+   自查：`grep -nEi "drop[[:space:]]+(table|database|schema|index)" V1__init.sql` → 必须无输出。
+2. **时间字段一律 `DATETIME`**，业务时间与 `create_time`/`update_time` 审计时间分开，不复用。
+3. **PII 明文永不落库**；`*_hash` 之外的 PII 列不建任何索引（密文等值无意义，精确查询一律走 hash）。
+
+### 13.3 索引最终清单（V1 实际落地）
+
+| 表 | 索引 | 类型 | 服务查询 | 理由 |
+|---|---|---|---|---|
+| employee | `uk_employee_emp_no (emp_no)` | 唯一 | `eq(emp_no)` 门禁校验 + 工号重复校验 | 业务唯一 |
+| employee | `idx_emp_phone_hash (phone_hash)` | 普通 | 加密后按手机号精确查 | 密文列无法等值，hash 是唯一入口 |
+| vehicle | `uk_vehicle_plate_no (plate_no)` | 唯一 | `eq(plate_no)` 门禁校验 | 业务唯一 |
+| access_permission | `idx_perm_target_area (target_type, target_no, area)` | **普通** | 门禁判定 `count(...)>0` | **裁决 8**：普通索引与该查询等价，做成唯一键会挡住"同人同区续期" |
+| access_permission | `idx_perm_expire (status, end_time)` | 普通 | `scanPermissions` 三条 UPDATE | 等值在前、范围在后 |
+| access_record | `idx_ar_pass_time (pass_time)` | 普通 | 列表时间范围 + 时间倒序 | 大表主力索引 |
+| access_record | `idx_ar_target_time (target_no, pass_time)` | 普通 | 按人/车查轨迹 | 当前 `pageQuery` 用 `like('%v%')` 用不上；为明确需求预留，确认无此需求可在 V2 删 |
+| visitor | `idx_visitor_status_expire (status, expire_time)` | 普通 | `scanVisitors` | 等值 + 范围 |
+| visitor | `idx_visitor_id_card_hash` / `idx_visitor_phone_hash` | 普通 | 加密后精确查 | 同上，P2 能力预留 |
+| material | `uk_material_code (code)` | 唯一 | `eq(code)` 多处 | 一物一码 |
+| stock_record | `idx_sr_material_code (material_code)` | 普通 | 按物资查流水 | 沿用原表 |
+| stock_record | `idx_sr_overdue_scan (type, return_time, approve_status, expect_return_time)` | 普通 | `scanMaterials` + 领用前逾期校验 | **列序特意排过**：`return_time IS NULL` 在 MySQL 按等值 ref 处理，提到 `IN` 之前可多拿一个 key part |
+| stock_record | `idx_sr_borrower_overdue (borrower, type, return_time, approve_status)` | 普通 | `checkOverdueSameCategory` | 写路径，每次领用都跑 |
+| alarm | `uk_alarm_dedup_key (dedup_key)` | 唯一 | P2 告警去重 | MySQL 唯一索引允许多个 NULL，历史数据不受影响 |
+| alarm | `idx_alarm_status_time (status, create_time)` | 普通 | 仪表盘未处理告警数 + 列表筛选 | 等值 + 倒序 |
+
+**明确不建**（避免后人补建踩坑）：
+`employee(status)` / `vehicle(status)` / `material(status)` —— 基数 2~4，表仅 3000 / 500 / 数千行，全表扫描更快；
+`access_record(result,pass_time)` / `(gate,pass_time)` —— 列表默认不带该条件，且 `pass_time` 已能过滤绝大部分行，多一个索引的写放大（日增 1 万）不划算；若"只看拦截记录"成为高频入口再在 V2 补。
+
+### 13.4 迁移手册要点（`docs/ops/migration-h2-to-mysql.md`）
+
+- 推荐 **路径 A（空库启动）**：客户首次上线、H2 只有演示数据时走 A，Flyway 自动建表，不迁任何数据。
+- **路径 B** 仅在客户现场已有真实存量时使用，四段管道：H2 `CSVWRITE` → CSV → python 转 INSERT → `docker exec -i`。
+- CSV 导出必须带 **`null=\N`**：H2 默认把 NULL 与空字符串都导成空字段，MySQL 侧无法区分；用哨兵后在转换器里翻译成 SQL `NULL`。
+- 原子性：**每张表一个事务**，表内必须原子（部分导入比整体失败更糟），表间不要求（无物理外键）。
+- 会话必须锁 `sql_mode` 含 `STRICT_TRANS_TABLES, NO_ZERO_DATE, NO_ZERO_IN_DATE`，否则脏日期被静默写成 `0000-00-00`。
+- **QA 断言请写错误码 3819**，不要只写"插入失败"——1364/1406/1062 也会让插入失败，只断言"失败"会产生假通过。
+- 五项校验：① 行数一致 ② 脏日期为零（stderr 0 字节 + 源端正则 + 目标端零值兜底）③ 枚举合法性 ④ 孤儿引用 ⑤ 业务汇总与抽样比对。
+- **`data.sql` 演示数据禁止导入生产**：含虚构身份证且是明文；`spring.sql.init.mode: never` 已保证应用不会执行它。
+
+### 13.5 归档作业要点（`docs/ops/archive.sql`）
+
+- `access_record` 在线 24 个月，`stock_record` 在线 36 个月，其余 6 张表不归档。
+- 分批 5000 行 + `sleep 0.1`，**先 INSERT 后 DELETE，同事务**，靠 `(时间列, id)` 确定性排序保证"搬的就是删的"。
+- `stock_record` 归档条件多一条：**只搬已完结单据**（`type='IN'` 或 `type='OUT' AND return_time IS NOT NULL`），在外未还的 OUT 单必须留在线表，否则逾期扫描与领用校验查不到。
+- 三条校验：主表无残留超期行 / 归档表无混入未超期行 / 归档表无混入未完结行（第三条非零说明归档条件写错，必须回滚）。
+- 【待确认】24 / 36 个月是建议值；**超出最短留存期后"删除归档数据"这一步不可逆**，未确认合规口径前不得删归档表。
+
+### 13.6 仍未闭环（承接 §12）
+
+④ 物资量级 ⑤ 一人一区多条权限业务口径（已按"允许多条"落地，需客户确认）⑥ 留存合规期 ⑦ SLA 档位 ⑧ 一物一码 vs 批量数量 ⑨ 部署实例数 ⑩ H2 存量数据有无（决定走路径 A 还是 B）⑪ `idx_sr_overdue_scan` 的 EXPLAIN 实测（上线前在客户库上跑一次）。
+

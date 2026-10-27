@@ -13,6 +13,57 @@ env:
   IMAGE_PREFIX: ${{ github.repository }}    # owner/smart-park
 
 jobs:
+  # ------------------------------------------------- 运维脚本自检（无需 docker）
+  scripts:
+    name: 运维脚本自检
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # 四条失败路径 + 一条正常路径：编码/业务键/枚举/列名 + 事务原子性断言
+      # 说明：这些是"真跑才能暴露"的问题（py_compile 查不出逻辑错误），故纳入 CI
+      - name: csv-to-inserts.py 自检
+        run: |
+          set -u
+          cd scripts
+          mkdir -p /tmp/t && cd /tmp/t
+          S=../../scripts/csv-to-inserts.py
+          COLS='emp_no,name,dept,phone,status'
+
+          print_result(){ echo "$1"; }
+
+          # ① 正常路径：exit 0 且含 COMMIT，业务键大写归一
+          printf 'emp_no,name,dept,phone,status\ne1001,张三,技,,在职\n' > ok.csv
+          python3 $S employee "$COLS" ok.csv > ok.sql; rc=$?
+          [ $rc -eq 0 ] || { echo "::error::正常路径退出码 $rc"; exit 1; }
+          grep -q 'COMMIT;' ok.sql || { echo "::error::缺少 COMMIT"; exit 1; }
+          grep -q "'E1001'" ok.sql || { echo "::error::业务键未大写归一"; exit 1; }
+
+          # ② 列名校验：列序打乱必须中止（默认严格）
+          printf 'name,emp_no,dept,phone,status\n张三,E1,技,,在职\n' > shuffle.csv
+          python3 $S employee "$COLS" shuffle.csv >/dev/null 2>&1; rc=$?
+          [ $rc -eq 4 ] || { echo "::error::列序打乱未中止（rc=$rc）"; exit 1; }
+
+          # ③ 业务键为空：exit 4 且不写 COMMIT（事务原子性）
+          printf 'emp_no,name,dept,phone,status\n,张三,技,,在职\n' > badkey.csv
+          python3 $S employee "$COLS" badkey.csv --keys emp_no > badkey.sql 2>/dev/null; rc=$?
+          [ $rc -eq 4 ] || { echo "::error::业务键为空未中止（rc=$rc）"; exit 1; }
+          grep -q 'COMMIT;' badkey.sql && { echo "::error::中止时不应包含 COMMIT"; exit 1; }
+
+          # ④ 枚举非法：exit 4
+          printf 'emp_no,name,dept,phone,status\nE1,张三,技,,未知\n' > badenum.csv
+          python3 $S employee "$COLS" badenum.csv --enum 'status=在职,离职' >/dev/null 2>&1; rc=$?
+          [ $rc -eq 4 ] || { echo "::error::枚举非法未中止（rc=$rc）"; exit 1; }
+
+          # ⑤ 非 UTF-8：exit 4（且不得自动转码）
+          python3 -c "open('gbk.csv','wb').write('emp_no,name,dept,phone,status\nE1,张三,技,,在职\n'.encode('gbk'))"
+          python3 $S employee "$COLS" gbk.csv >/dev/null 2>&1; rc=$?
+          [ $rc -eq 4 ] || { echo "::error::非 UTF-8 未中止（rc=$rc）"; exit 1; }
+
+          echo "✅ 运维脚本自检通过（5 条路径）"
+
   # ---------------------------------------------------------------- 后端
   backend:
     name: 后端构建与测试
@@ -44,15 +95,13 @@ jobs:
           node-version: '18'
           cache: npm
           cache-dependency-path: smart-park-frontend/package-lock.json
-      - name: 依赖安装
+      # package-lock.json 必须存在（缺即 fail）：可重复构建依赖锁定，
+      # 不允许静默回退 npm install —— 否则交付版本与验收版本可能不一致
+      - name: 依赖安装（npm ci，锁定依赖）
         working-directory: smart-park-frontend
         run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            echo "::warning::未发现 package-lock.json，回退 npm install；请尽快提交 lock 文件"
-            npm install
-          fi
+          test -f package-lock.json || { echo "::error::缺少 package-lock.json"; exit 1; }
+          npm ci
       - name: 前端测试（用例就绪后自动生效）
         working-directory: smart-park-frontend
         run: npm run test --if-present

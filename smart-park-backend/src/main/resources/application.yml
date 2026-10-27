@@ -1,0 +1,65 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+  tomcat:
+    threads:
+      max: 200
+
+spring:
+  application:
+    name: smart-park-backend
+  profiles:
+    # 默认 dev；生产由 SMARTPARK_PROFILE=prod 注入
+    active: ${SMARTPARK_PROFILE:dev}
+  # B01 根因修复：生产绝不自动执行 schema.sql/data.sql（原为 always + DROP TABLE，重启即清库）
+  sql:
+    init:
+      mode: never
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+
+# ---- 业务与安全配置：敏感值全部 env 注入，不进 Git ----
+smartpark:
+  security:
+    # HS256 密钥要求 >= 32 字节随机串：openssl rand -base64 48
+    jwt-secret: ${SMARTPARK_JWT_SECRET}
+    access-token-minutes: ${SMARTPARK_ACCESS_TOKEN_MINUTES:120}
+    refresh-token-days: ${SMARTPARK_REFRESH_TOKEN_DAYS:7}
+    # 同域（Nginx 反代）部署留空 = 不注册 CORS mapping；跨域部署填逗号分隔白名单
+    cors-origins: ${SMARTPARK_CORS_ORIGINS:}
+  crypto:
+    # AES-256-GCM（Base64 32 字节）与 HMAC-SHA256 密钥，缺失启动 fail-fast
+    key: ${SMARTPARK_CRYPTO_KEY}
+    hmac-key: ${SMARTPARK_CRYPTO_HMAC_KEY}
+  # 一次性 PII 加密回填 Job 开关：默认关闭，仅客户现场存在真实存量数据时手动开启执行一次
+  pii-backfill:
+    enabled: ${SMARTPARK_PII_BACKFILL:false}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 默认仅 health；客户选装 Prometheus 时由 ACTUATOR_EXPOSE=health,metrics,prometheus 切换（免发版）
+        # 注意：暴露 != 放行，SecurityConfig 恒只 permitAll /actuator/health
+        include: ${ACTUATOR_EXPOSE:health}
+  endpoint:
+    health:
+      show-details: never
+  health:
+    defaults:
+      enabled: false
+    db:
+      enabled: true
+
+logging:
+  level:
+    com.smartpark.mapper: warn
+    com.smartpark: info

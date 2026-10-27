@@ -36,8 +36,8 @@
 -- START TRANSACTION;
 -- INSERT INTO access_record_archive SELECT * FROM access_record WHERE pass_time < @cutoff ORDER BY pass_time, id LIMIT 5000;
 -- DELETE FROM access_record WHERE pass_time < @cutoff ORDER BY pass_time, id LIMIT 5000;
+-- SELECT ROW_COUNT();   -- 必须在 COMMIT 前取：COMMIT 之后 ROW_COUNT() 不再反映 DELETE 的行数
 -- COMMIT;
--- SELECT ROW_COUNT();
 -- SQL
 --       )
 --       echo "batch moved: $N"
@@ -52,12 +52,14 @@
 -- §1 执行前检查（必做，三分钟能省一次事故）
 -- =============================================================================
 
--- 1.1 确认归档表存在且结构与主表一致（列数必须相等）
-SELECT TABLE_NAME, COLUMN_COUNT = 0 AS 异常
+-- 1.1 确认归档表存在（4 张表都必须查到；ROW_FORMAT 应为 COMPRESSED）
+SELECT TABLE_NAME, ENGINE, ROW_FORMAT, CREATE_TIME
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = DATABASE()
   AND TABLE_NAME IN ('access_record', 'access_record_archive', 'stock_record', 'stock_record_archive');
+-- 期望：4 行；两张归档表 ROW_FORMAT = COMPRESSED
 
+-- 1.1b 确认列数一致（归档表是 CREATE TABLE ... LIKE 建的，列数必须完全相同）
 SELECT t1.TABLE_NAME AS 主表, t2.TABLE_NAME AS 归档表,
        (SELECT COUNT(*) FROM information_schema.COLUMNS c1
          WHERE c1.TABLE_SCHEMA = DATABASE() AND c1.TABLE_NAME = t1.TABLE_NAME) AS 主表列数,
@@ -95,6 +97,10 @@ SELECT 'stock_record', COUNT(*) FROM stock_record
 -- §2.1 单批搬运（重复执行直到"影响行数 = 0"）
 --      排序 (pass_time, id) 是确定性的：INSERT 选出的行与 DELETE 删掉的行必然是同一批。
 --      换成任何非唯一排序（比如只按 pass_time）都可能在时间重复时搬删不一致。
+--
+--      前提：归档窗口内不得补录历史数据。本系统通行记录的 pass_time 一律写当前时间，
+--      不会被 cutoff 命中，因此正常运行下无此风险；若临时需要补录历史数据，必须先停归档作业
+--      ——否则 INSERT 与 DELETE 之间新插入的历史行可能被 DELETE 命中却没被归档，造成丢数据。
 SET SESSION autocommit = 0;
 SET @cutoff = DATE_SUB(NOW(), INTERVAL 24 MONTH);
 
@@ -111,8 +117,9 @@ WHERE pass_time < @cutoff
 ORDER BY pass_time, id
 LIMIT 5000;
 
-COMMIT;
+-- ROW_COUNT() 必须在 COMMIT 之前取：COMMIT 之后它不再反映 DELETE 的行数
 SELECT ROW_COUNT() AS 本批搬运行数;
+COMMIT;
 
 -- §2.2 本轮结束后的校验（三条都必须符合预期）
 --  ① 主表不再有早于 cutoff 的数据
@@ -154,8 +161,8 @@ WHERE create_time < @cutoff
 ORDER BY create_time, id
 LIMIT 5000;
 
-COMMIT;
 SELECT ROW_COUNT() AS 本批搬运行数;
+COMMIT;
 
 -- §3.2 校验
 SELECT COUNT(*) AS 主表残留超期行 FROM stock_record
@@ -203,8 +210,8 @@ WHERE pass_time < @cutoff
 ORDER BY pass_time, id
 LIMIT 5000;
 
-COMMIT;
 SELECT ROW_COUNT() AS 回滚行数;
+COMMIT;
 
 
 -- =============================================================================

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  smart-park 后端日志配置（分环境）
+  ⚠ 依赖：pom.xml 必须包含 net.logstash.logback:logstash-logback-encoder（8.0）
+           否则 staging/prod 启动时会因找不到 LogstashEncoder 而失败（归 backend-engineer）
+
+  约定：
+    - MDC traceId 的 key 是 "traceId"，与后端 TraceIdFilter + 前端 X-Trace-Id 三者对齐
+    - 日志目录 /app/logs 由 compose 挂载到宿主机 ./logs/backend，容器删除不丢
+    - 保留策略：30 天 + 总量 5GB 上限
+-->
+<configuration>
+
+    <property name="LOG_DIR" value="/app/logs"/>
+    <property name="PATTERN_DEV"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-}] %logger{36} - %msg%n"/>
+
+    <!-- ============================ dev：控制台纯文本 ============================ -->
+    <springProfile name="dev">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>${PATTERN_DEV}</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <logger name="com.smartpark" level="DEBUG"/>
+    </springProfile>
+
+    <!-- ==================== staging / prod：JSON 文件 + 异步 ==================== -->
+    <springProfile name="staging,prod">
+
+        <!-- 主日志：JSON 结构化（便于检索与后续采集） -->
+        <appender name="JSON" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>${LOG_DIR}/smart-park.json</file>
+            <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_DIR}/smart-park.%d{yyyy-MM-dd}.%i.json.gz</fileNamePattern>
+                <maxFileSize>100MB</maxFileSize>
+                <maxHistory>30</maxHistory>
+                <totalSizeCap>5GB</totalSizeCap>
+            </rollingPolicy>
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <includeMdcKeyName>traceId</includeMdcKeyName>
+                <customFields>{"service":"smart-park-backend"}</customFields>
+            </encoder>
+        </appender>
+
+        <!-- 异步包装：日志 IO 不阻塞业务线程 -->
+        <appender name="ASYNC_JSON" class="ch.qos.logback.classic.AsyncAppender">
+            <queueSize>4096</queueSize>
+            <discardingThreshold>0</discardingThreshold>
+            <neverBlock>true</neverBlock>
+            <appender-ref ref="JSON"/>
+        </appender>
+
+        <!-- 错误单独落盘：巡检脚本按文件 mtime 判断 ERROR 增量 -->
+        <appender name="ERROR" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>${LOG_DIR}/smart-park-error.log</file>
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>ERROR</level>
+            </filter>
+            <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_DIR}/smart-park-error.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+                <maxFileSize>100MB</maxFileSize>
+                <maxHistory>30</maxHistory>
+            </rollingPolicy>
+            <encoder>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{traceId:-}] %-5level %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="ASYNC_JSON"/>
+            <appender-ref ref="ERROR"/>
+        </root>
+        <logger name="com.smartpark" level="INFO"/>
+    </springProfile>
+
+</configuration>

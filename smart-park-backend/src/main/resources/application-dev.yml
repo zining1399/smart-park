@@ -1,0 +1,35 @@
+# 开发/本地环境：MySQL 8 本地实例（H2 已降为 test scope，仅测试使用）
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 不使用 characterEncoding=utf8（utf8mb3 三字节坑），改用 connectionCollation 指定 utf8mb4
+    url: jdbc:mysql://${SMARTPARK_DB_HOST:localhost}:${SMARTPARK_DB_PORT:3306}/${SMARTPARK_DB_NAME:smart_park}?connectionCollation=utf8mb4_0900_ai_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${SPRING_DATASOURCE_USERNAME:smart_park}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+  flyway:
+    enabled: true
+    clean-disabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+  # dev 侧允许保留演示脚本（不自动加载，需手工执行）；生产永不加载
+  sql:
+    init:
+      mode: never
+
+# dev 兜底：未注入 env 时使用本地开发密钥（生产 profile 不含任何默认值，缺失即 fail-fast）
+smartpark:
+  security:
+    jwt-secret: ${SMARTPARK_JWT_SECRET:dev-only-insecure-jwt-secret-please-override-in-env-0123456789}
+    cors-origins: ${SMARTPARK_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+  crypto:
+    # 注意：key 必须是 Base64 编码的 32 字节串（下为 0x00-0x1F 的 Base64，仅 dev 使用）
+    key: ${SMARTPARK_CRYPTO_KEY:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=}
+    hmac-key: ${SMARTPARK_CRYPTO_HMAC_KEY:dev-only-hmac-key-please-override}
+
+logging:
+  level:
+    com.smartpark: debug
