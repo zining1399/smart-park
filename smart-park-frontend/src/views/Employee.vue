@@ -35,11 +35,11 @@
       <el-table-column prop="empNo" label="工号" width="120" />
       <el-table-column prop="name" label="姓名" width="120" />
       <el-table-column prop="dept" label="部门" />
-      <!-- 裁决 17：员工手机号服务端加密，列表只返回掩码字段。
-           后端字段命名待统一（phone_mask / phoneMask 两种口径都见过），这里两种都兼容读取，
-           但绝不回退到密文字段 phone -->
+      <!-- 裁决 17：员工手机号服务端加密，列表只返回掩码字段 phoneMask（驼峰，与 idCardMask 对齐）。
+           注意：不要回退读取密文字段 phone，也不要为兼容下划线写法做兜底——
+           契约命名已冻结，不一致应暴露而非被前端容错掩盖 -->
       <el-table-column prop="phoneMask" label="手机号" width="140">
-        <template #default="{ row }">{{ row.phoneMask || row.phone_mask || '-' }}</template>
+        <template #default="{ row }">{{ row.phoneMask || '-' }}</template>
       </el-table-column>
       <el-table-column prop="status" label="状态" width="90">
         <template #default="{ row }">
@@ -173,7 +173,7 @@ const rules = computed(() => ({
 
 function openDialog(row) {
   // 编辑回填用掩码值（后端不再下发明文 phone），未改动则不回传该字段
-  Object.assign(form, emptyForm, row ? { ...row, phone: row.phoneMask || row.phone_mask || '' } : {})
+  Object.assign(form, emptyForm, row ? { ...row, phone: row.phoneMask || '' } : {})
   dialogVisible.value = true
   if (formRef.value) formRef.value.clearValidate()
 }

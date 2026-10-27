@@ -39,9 +39,10 @@
       <el-table-column prop="idCardMask" label="身份证" width="170">
         <template #default="{ row }">{{ row.idCardMask || '-' }}</template>
       </el-table-column>
-      <!-- 裁决 17：访客手机号同属加密范围，列表只返回掩码字段，绝不渲染密文 phone -->
+      <!-- 裁决 17：访客手机号同属加密范围，列表只返回掩码字段 phoneMask（驼峰）。
+           绝不渲染密文 phone，也不为下划线写法做兜底 -->
       <el-table-column prop="phoneMask" label="手机号" width="130">
-        <template #default="{ row }">{{ row.phoneMask || row.phone_mask || '-' }}</template>
+        <template #default="{ row }">{{ row.phoneMask || '-' }}</template>
       </el-table-column>
       <el-table-column prop="hostName" label="被访人" width="90" />
       <el-table-column prop="hostDept" label="被访部门" width="110" />
@@ -275,7 +276,7 @@ function openDialog(row) {
   Object.assign(
     form,
     emptyForm,
-    row ? { ...row, idCard: row.idCardMask || '', phone: row.phoneMask || row.phone_mask || '' } : {}
+    row ? { ...row, idCard: row.idCardMask || '', phone: row.phoneMask || '' } : {}
   )
   dialogVisible.value = true
   if (formRef.value) formRef.value.clearValidate()
