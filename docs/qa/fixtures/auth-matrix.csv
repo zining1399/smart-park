@@ -34,7 +34,7 @@
 出入库,TC-AUTH-03,GET,/api/stock-records,0,40301,0,40101,Y,
 出入库,TC-AUTH-04,POST,/api/stock-records/in,0,40301,0,40101,Y,
 出入库,TC-AUTH-04,POST,/api/stock-records/out,0,40301,0,40101,Y,
-出入库,TC-AUTH-04,POST,/api/stock-records/{id}/approve,0,40301,0,40101,Y,
+出入库,TC-AUTH-04,POST,/api/stock-records/{id}/approve,0,40301,40301,40101,Y,审批权严格仅管理员（内控底线）：防仓管自我审批——同一人既能提交出库申请又能审批通过等于内控失效。CI 若此行报红，只允许改代码对齐本行，严禁把本行改成放行
 出入库,TC-AUTH-04,POST,/api/stock-records/{id}/return,0,40301,0,40101,Y,
 告警,TC-AUTH-05,GET,/api/alarms,0,0,0,40101,Y,
 告警,TC-AUTH-05,POST,/api/alarms/{id}/handle,0,0,0,40101,Y,三角色均可处理
