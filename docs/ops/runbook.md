@@ -188,7 +188,8 @@ docker exec -i smart-park-mysql sh -c \
 在线保留策略（data-engineer 定义）：`access_record` **24 个月**、`stock_record` **36 个月**，过期数据转入同名 `_archive` 表（`ROW_FORMAT=COMPRESSED`）。
 
 ```bash
-# crontab：每月 1 日 03:00（避开 02:00±1h 的备份与 Flyway 发布窗口）
+# crontab：每月 1 日 04:00（备份每日 02:30 起，1.5GB dump 常超 30 分钟，排 03:00 会重叠）
+#          脚本内另有 mysqldump 进程守卫：备份仍在跑即中止，避免"备份文件已存在≠备份已结束"
 0 3 1 * * /opt/smart-park/scripts/archive.sh >> /opt/smart-park/logs/archive.log 2>&1
 
 # 结果：logs/archive.log 记录每张表的搬运行数/批数/残留行数；
@@ -224,8 +225,9 @@ docker exec -i smart-park-mysql sh -c \
 - [ ] `curl -o /dev/null -w '%{http_code}' http://<host>/api/actuator/prometheus` → **403**
 - [ ] 用 app 账号执行一条 DROP → 应报 Access denied（最小权限实测）
 - [ ] **建表结果三条硬校验**（Flyway 执行后立即跑）：
-      - `SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE';` → 期望 **11**（8 主表 + 2 归档 + flyway_schema_history）
-      - `SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA=DATABASE() AND CONSTRAINT_TYPE='CHECK';` → 期望 **17**；**返回 0 说明 MySQL < 8.0.16，CHECK 被静默忽略，必须停上线先升 MySQL**
+      - `SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE';` → 期望 **12**（9 主表 + 2 归档 + flyway_schema_history）
+      - 口径说明：若只数业务表则为 **11**（9 主表 + 2 归档表），加上 Flyway 自建的 `flyway_schema_history` 为 **12**。检查单以 **12** 为准，不要拿 11 去对 `information_schema` 结果。
+      - `SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA=DATABASE() AND CONSTRAINT_TYPE='CHECK';` → 期望 **20**；**返回 0 说明 MySQL < 8.0.16，CHECK 被静默忽略，必须停上线先升 MySQL**
       - `SELECT installed_rank, version, success FROM flyway_schema_history;` → 期望 1 行且 `success=1`
 - [ ] 首次备份手工触发一次并验证可恢复
 

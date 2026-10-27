@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
 # 归档作业（每月低峰执行一次）
-#   crontab 例: 0 3 1 * * /opt/smart-park/scripts/archive.sh >> /opt/smart-park/logs/archive.log 2>&1
+#   crontab 例: 0 4 1 * * /opt/smart-park/scripts/archive.sh >> /opt/smart-park/logs/archive.log 2>&1
 #
 # 在线保留策略（由 data-engineer 定义）：
 #   access_record  在线 24 个月 → access_record_archive
@@ -9,7 +9,8 @@
 #
 # 三条硬要求：
 #   1. 执行前必须有当日可用备份（无备份即中止）
-#   2. 避开 Flyway 发布窗口与备份窗口（02:00±1h）——本脚本默认排在每月 1 日 03:00
+#   2. 避开备份窗口（备份每日 02:30 起，1.5GB 库 dump 常超 30 分钟）与 Flyway 发布窗口
+#      ——本脚本排在每月 1 日 04:00；且执行前会检查 mysqldump 进程是否仍在跑
 #   3. 分批 5000 行 + 批间 sleep 0.1s，禁止一次性大事务（长事务会拖垮主库）
 #
 # 驱动方式：使用容器内 mysql 客户端（镜像自带）经 docker exec 执行，
@@ -34,10 +35,23 @@ log() { echo "[$(ts)] $*"; }
 STATUS=$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo missing)
 [ "$STATUS" = "healthy" ] || { log "❌ 容器 $CONTAINER 状态=$STATUS，归档中止"; exit 1; }
 
-# -------- ② 前置：当日必须有可用备份 --------
+# -------- ② 前置：当日必须有"已完成"的备份 --------
 TODAY=$(date +%Y%m%d)
+# 2a. 备份进程仍在跑即中止："备份文件已存在" ≠ "备份已结束"，
+#     1.5GB 库 mysqldump 超过 30 分钟很常见，只看文件存在会与备份并发。
+if pgrep -f mysqldump >/dev/null 2>&1; then
+  log "❌ 检测到 mysqldump 进程仍在运行，归档中止（避免与备份并发）"
+  exit 1
+fi
+# 2b. 必须存在当日备份文件
 if ! ls -1 "$BASE_DIR/backup"/full_${TODAY}_*.sql.gz >/dev/null 2>&1; then
   log "❌ 未发现当日(${TODAY})备份，归档中止（归档前必须有可用备份）"
+  exit 1
+fi
+# 2c. 半成品检测：存在 .part 说明备份尚未完成
+#     配合要求：backup.sh 应先写 .part 临时名、完成后再 rename，归档只认最终文件。
+if ls -1 "$BASE_DIR/backup"/*.part >/dev/null 2>&1; then
+  log "❌ 发现未完成的备份半成品(*.part)，归档中止"
   exit 1
 fi
 
