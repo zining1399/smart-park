@@ -7,12 +7,20 @@
       </div>
 
       <el-form ref="formRef" :model="form" :rules="rules" size="large" @keyup.enter="handleSubmit">
+        <!-- name 属性供 E2E 定位（qa 的 fixture 按 input[name="username"] 选择器取元素） -->
         <el-form-item prop="username">
-          <el-input v-model="form.username" :prefix-icon="User" placeholder="请输入账号" autocomplete="username" />
+          <el-input
+            v-model="form.username"
+            name="username"
+            :prefix-icon="User"
+            placeholder="请输入账号"
+            autocomplete="username"
+          />
         </el-form-item>
         <el-form-item prop="password">
           <el-input
             v-model="form.password"
+            name="password"
             type="password"
             :prefix-icon="Lock"
             placeholder="请输入密码"
@@ -20,7 +28,7 @@
             autocomplete="current-password"
           />
         </el-form-item>
-        <el-button type="primary" class="login-btn" :loading="submitting" @click="handleSubmit">登 录</el-button>
+        <el-button type="primary" class="login-btn" :loading="submitting" @click="handleSubmit">登录</el-button>
       </el-form>
 
       <div class="login-tip">请使用园区分配的账号登录 · 登录失败会提示具体原因</div>

@@ -15,7 +15,9 @@ export const ERROR_CODE = {
   SERVER_ERROR: 50001 // 500 系统异常
 }
 
-const BASE_URL = import.meta.env.VITE_API_BASE || '/api'
+// 变量命名与运维侧对齐：优先 VITE_API_BASE_URL（部署方案/ Dockerfile 使用的名字），
+// 兼容 VITE_API_BASE；两者都未配时默认 /api（Nginx 同域反代，零 CORS 依赖）
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || '/api'
 
 const request = axios.create({
   baseURL: BASE_URL,

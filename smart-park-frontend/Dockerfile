@@ -8,6 +8,13 @@
 FROM node:18-alpine AS builder
 WORKDIR /build
 
+# ⚠ Vite 的 VITE_* 是【构建期】变量：会被内联进产物 JS，运行时改环境变量无效。
+#    修改前端 API 地址或部署子路径必须重新 build 镜像（仅重启容器无效）。
+ARG VITE_API_BASE=/api
+ARG VITE_BASE=/
+ENV VITE_API_BASE=$VITE_API_BASE \
+    VITE_BASE=$VITE_BASE
+
 # 内网/加速场景可注入镜像源（docker build --build-arg NPM_REGISTRY=...）
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 RUN npm config set registry "$NPM_REGISTRY"

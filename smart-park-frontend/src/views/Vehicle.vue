@@ -169,7 +169,10 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (form.id) {
-      await updateVehicle(form.id, form)
+      // 后端 PUT /vehicles/{id} 不再接受 plateNo（不可变业务唯一键），编辑提交剔除
+      const payload = { ...form }
+      delete payload.plateNo
+      await updateVehicle(form.id, payload)
       ElMessage.success('修改成功')
     } else {
       await createVehicle(form)

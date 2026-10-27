@@ -194,7 +194,11 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (form.id) {
-      await updateMaterial(form.id, form)
+      // 后端 PUT /materials/{id} 不再接受 code（不可变唯一键）与 status（由出入库流程维护）
+      const payload = { ...form }
+      delete payload.code
+      delete payload.status
+      await updateMaterial(form.id, payload)
       ElMessage.success('修改成功')
     } else {
       await createMaterial(form)

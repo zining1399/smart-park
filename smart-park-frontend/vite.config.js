@@ -8,7 +8,7 @@ import compression from 'vite-plugin-compression'
 //   VITE_API_BASE=/api  → 生产由 Nginx 同域反代；开发由下方 proxy 代理到后端
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const apiBase = env.VITE_API_BASE || '/api'
+  const apiBase = env.VITE_API_BASE_URL || env.VITE_API_BASE || '/api'
   const base = env.VITE_BASE || '/'
 
   return {

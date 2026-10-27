@@ -39,7 +39,10 @@
       <el-table-column prop="idCardMask" label="身份证" width="170">
         <template #default="{ row }">{{ row.idCardMask || '-' }}</template>
       </el-table-column>
-      <el-table-column prop="phone" label="手机号" width="125" />
+      <!-- 裁决 17：访客手机号同属加密范围，列表只返回掩码字段，绝不渲染密文 phone -->
+      <el-table-column prop="phoneMask" label="手机号" width="130">
+        <template #default="{ row }">{{ row.phoneMask || row.phone_mask || '-' }}</template>
+      </el-table-column>
       <el-table-column prop="hostName" label="被访人" width="90" />
       <el-table-column prop="hostDept" label="被访部门" width="110" />
       <el-table-column prop="area" label="访问区域" width="90" />
@@ -159,7 +162,7 @@ import { ElMessage } from 'element-plus/es/components/message/index.mjs'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import { pageVisitors, createVisitor, updateVisitor, deleteVisitor, checkInVisitor, checkOutVisitor } from '../api/visitor'
 import { useDictStore } from '../stores/dict'
-import { phoneRule, idCardRule } from '../utils/validators'
+import { PHONE_RE, idCardRule } from '../utils/validators'
 
 const dict = useDictStore()
 
@@ -232,7 +235,21 @@ const form = reactive({ ...emptyForm })
 const rules = computed(() => ({
   visitorName: [{ required: true, message: '请输入访客姓名', trigger: 'blur' }],
   idCard: form.id ? [] : [{ required: true, message: '请输入身份证号', trigger: 'blur' }, idCardRule],
-  phone: [{ required: true, message: '请输入手机号', trigger: 'blur' }, phoneRule],
+  // 手机号规则容忍掩码值：编辑回显的是 138****8001，用户不改则跳过格式校验
+  phone: [
+    { required: true, message: '请输入手机号', trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        const v = String(value || '')
+        if (!v || v.includes('*') || PHONE_RE.test(v)) {
+          callback()
+        } else {
+          callback(new Error('请输入正确的 11 位手机号'))
+        }
+      },
+      trigger: 'blur'
+    }
+  ],
   hostName: [{ required: true, message: '请输入被访人', trigger: 'blur' }],
   hostDept: [{ required: true, message: '请输入被访部门', trigger: 'blur' }],
   reason: [{ required: true, message: '请输入来访事由', trigger: 'blur' }],
@@ -254,7 +271,12 @@ const rules = computed(() => ({
 }))
 
 function openDialog(row) {
-  Object.assign(form, emptyForm, row ? { ...row } : {})
+  // 编辑回填用服务端掩码值（idCardMask / phoneMask，明文已不下发）；身份证输入框为禁用态
+  Object.assign(
+    form,
+    emptyForm,
+    row ? { ...row, idCard: row.idCardMask || '', phone: row.phoneMask || row.phone_mask || '' } : {}
+  )
   dialogVisible.value = true
   if (formRef.value) formRef.value.clearValidate()
 }
@@ -266,8 +288,10 @@ async function handleSubmit() {
   try {
     if (form.id) {
       // 终稿 B05 三层防护之②：编辑提交剔除 idCard 字段，掩码值绝不回传
+      // 同理，phone 若仍是掩码值（未修改）也剔除，避免"改了却没生效"
       const payload = { ...form }
       delete payload.idCard
+      if (String(payload.phone || '').includes('*')) delete payload.phone
       await updateVisitor(form.id, payload)
       ElMessage.success('修改成功')
     } else {

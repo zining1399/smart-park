@@ -35,7 +35,12 @@
       <el-table-column prop="empNo" label="工号" width="120" />
       <el-table-column prop="name" label="姓名" width="120" />
       <el-table-column prop="dept" label="部门" />
-      <el-table-column prop="phone" label="手机号" width="140" />
+      <!-- 裁决 17：员工手机号服务端加密，列表只返回掩码字段。
+           后端字段命名待统一（phone_mask / phoneMask 两种口径都见过），这里两种都兼容读取，
+           但绝不回退到密文字段 phone -->
+      <el-table-column prop="phoneMask" label="手机号" width="140">
+        <template #default="{ row }">{{ row.phoneMask || row.phone_mask || '-' }}</template>
+      </el-table-column>
       <el-table-column prop="status" label="状态" width="90">
         <template #default="{ row }">
           <el-tag :type="row.status === '在职' ? 'success' : 'info'">{{ row.status }}</el-tag>
@@ -92,11 +97,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index.mjs'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import { pageEmployees, createEmployee, updateEmployee, deleteEmployee } from '../api/access'
-import { phoneRule } from '../utils/validators'
+import { PHONE_RE } from '../utils/validators'
 
 const query = reactive({ name: '', dept: '', status: '' })
 const page = reactive({ pageNum: 1, pageSize: 10 })
@@ -144,16 +149,31 @@ const formRef = ref(null)
 const emptyForm = { id: null, empNo: '', name: '', dept: '', phone: '', status: '在职' }
 const form = reactive({ ...emptyForm })
 
-const rules = {
+// 手机号规则需容忍掩码值：编辑时回显的是 138****8001，用户不改则跳过格式校验
+const rules = computed(() => ({
   empNo: [{ required: true, message: '请输入工号', trigger: 'blur' }],
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   dept: [{ required: true, message: '请输入部门', trigger: 'blur' }],
-  phone: [{ required: true, message: '请输入手机号', trigger: 'blur' }, phoneRule],
+  phone: [
+    { required: true, message: '请输入手机号', trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        const v = String(value || '')
+        if (!v || v.includes('*') || PHONE_RE.test(v)) {
+          callback()
+        } else {
+          callback(new Error('请输入正确的 11 位手机号'))
+        }
+      },
+      trigger: 'blur'
+    }
+  ],
   status: [{ required: true, message: '请选择状态', trigger: 'change' }]
-}
+}))
 
 function openDialog(row) {
-  Object.assign(form, emptyForm, row ? { ...row } : {})
+  // 编辑回填用掩码值（后端不再下发明文 phone），未改动则不回传该字段
+  Object.assign(form, emptyForm, row ? { ...row, phone: row.phoneMask || row.phone_mask || '' } : {})
   dialogVisible.value = true
   if (formRef.value) formRef.value.clearValidate()
 }
@@ -165,7 +185,12 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (form.id) {
-      await updateEmployee(form.id, form)
+      // 后端 PUT /employees/{id} 不再接受 empNo（不可变业务唯一键）；
+      // phone 若是掩码值（未修改）也剔除，避免"改了却没生效"的困惑
+      const payload = { ...form }
+      delete payload.empNo
+      if (String(payload.phone || '').includes('*')) delete payload.phone
+      await updateEmployee(form.id, payload)
       ElMessage.success('修改成功')
     } else {
       await createEmployee(form)

@@ -173,7 +173,9 @@ const loadError = ref('')
 
 // 裁决 15：出入库类型仅 IN / OUT（后端已移除 RETURN 死枚举）
 function typeText(type) {
-  return type === 'IN' ? '入库' : '出库'
+  if (type === 'IN') return '入库'
+  if (type === 'OUT') return '出库'
+  return '-'
 }
 function typeTagType(type) {
   return type === 'IN' ? 'success' : 'warning'
