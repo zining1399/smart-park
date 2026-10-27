@@ -12,6 +12,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -21,7 +22,11 @@ import java.util.List;
  * 红线：加解密只走 Java 层 {@link SensitiveCrypto}（与在线写路径同一套密钥与算法），
  * 禁止在 SQL / shell / python 脚本中实现——密钥会落进脚本、shell history 与慢日志。
  * <p>
- * 幂等：已处理行的 *_hash 列非空，下次运行直接跳过；明文格式不匹配的行（疑似已是密文）跳过并计数。
+ * 幂等：已处理行的 *_hash 列非空，下次运行直接跳过。
+ * <p>
+ * 风险：被跳过的行，明文仍然留在密文列里（半明半密、外表看不出来），因此跳过时必须打印 id 清单
+ * 而不只是计数；且本 Job 是一次全表批量 UPDATE，写错即全库密文损坏且不可逆——
+ * 运行前必须已完成全量备份（见 Job 运行手册）。
  */
 @Slf4j
 @Component
@@ -46,16 +51,25 @@ public class PiiBackfillJob implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        log.warn("PII 加密回填 Job 启动（一次性任务，处理完成后请关闭 smartpark.pii-backfill.enabled）");
+        log.warn("==================================================================");
+        log.warn("PII 加密回填 Job 启动：这是一次性全表批量 UPDATE，会覆盖 id_card / phone 列原值。");
+        log.warn("前置条件：执行前必须已完成全量备份。密文写错后原明文不可还原，事故不可逆。");
+        log.warn("处理完成后请立即关闭 smartpark.pii-backfill.enabled（去掉环境变量或置 false）。");
+        log.warn("==================================================================");
         int[] visitorStats = backfillVisitors();
         int[] employeeStats = backfillEmployees();
         log.warn("PII 加密回填完成：访客处理 {} 条 / 跳过 {} 条；员工处理 {} 条 / 跳过 {} 条",
                 visitorStats[0], visitorStats[1], employeeStats[0], employeeStats[1]);
+        if (visitorStats[1] + employeeStats[1] > 0) {
+            log.error("存在被跳过的行：这些行的明文仍留在密文列中（库内半明半密，外表不可见），"
+                    + "必须人工核对后再决定是否二次处理。跳过 id 清单见上方 WARN 日志。");
+        }
     }
 
     private int[] backfillVisitors() {
         int handled = 0;
         int skipped = 0;
+        List<Long> skippedIds = new ArrayList<>();
         List<Visitor> list = visitorMapper.selectList(new LambdaQueryWrapper<Visitor>()
                 .isNull(Visitor::getIdCardHash)
                 .or()
@@ -79,7 +93,12 @@ public class PiiBackfillJob implements CommandLineRunner {
                 handled++;
             } else {
                 skipped++;
+                skippedIds.add(v.getId());
             }
+        }
+        if (!skippedIds.isEmpty()) {
+            log.warn("访客回填跳过 {} 条（明文格式不匹配，疑似已是密文）：skippedVisitorIds={}",
+                    skippedIds.size(), skippedIds);
         }
         return new int[]{handled, skipped};
     }
@@ -87,6 +106,7 @@ public class PiiBackfillJob implements CommandLineRunner {
     private int[] backfillEmployees() {
         int handled = 0;
         int skipped = 0;
+        List<Long> skippedIds = new ArrayList<>();
         List<Employee> list = employeeMapper.selectList(new LambdaQueryWrapper<Employee>()
                 .isNull(Employee::getPhoneHash));
         for (Employee e : list) {
@@ -98,7 +118,12 @@ public class PiiBackfillJob implements CommandLineRunner {
                 handled++;
             } else {
                 skipped++;
+                skippedIds.add(e.getId());
             }
+        }
+        if (!skippedIds.isEmpty()) {
+            log.warn("员工回填跳过 {} 条（明文格式不匹配，疑似已是密文）：skippedEmployeeIds={}",
+                    skippedIds.size(), skippedIds);
         }
         return new int[]{handled, skipped};
     }

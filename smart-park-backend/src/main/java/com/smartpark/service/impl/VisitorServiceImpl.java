@@ -3,6 +3,7 @@ package com.smartpark.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.smartpark.common.AuditLogger;
 import com.smartpark.common.BizException;
 import com.smartpark.common.DateTimes;
 import com.smartpark.common.PageSupport;
@@ -17,9 +18,11 @@ import org.springframework.util.StringUtils;
 public class VisitorServiceImpl extends ServiceImpl<VisitorMapper, Visitor> implements VisitorService {
 
     private final SensitiveCrypto crypto;
+    private final AuditLogger auditLogger;
 
-    public VisitorServiceImpl(SensitiveCrypto crypto) {
+    public VisitorServiceImpl(SensitiveCrypto crypto, AuditLogger auditLogger) {
         this.crypto = crypto;
+        this.auditLogger = auditLogger;
     }
 
     @Override
@@ -79,10 +82,14 @@ public class VisitorServiceImpl extends ServiceImpl<VisitorMapper, Visitor> impl
 
     @Override
     public void delete(Long id) {
-        if (getById(id) == null) {
+        Visitor exist = getById(id);
+        if (exist == null) {
             throw BizException.notFound("访客记录不存在");
         }
         removeById(id);
+        // 只记掩码，审计日志不落明文身份证/手机号
+        auditLogger.audit("DELETE_VISITOR", String.valueOf(id), "SUCCESS",
+                "name=" + exist.getVisitorName() + " phoneMask=" + exist.getPhoneMask());
     }
 
     @Override
@@ -97,6 +104,8 @@ public class VisitorServiceImpl extends ServiceImpl<VisitorMapper, Visitor> impl
         visitor.setStatus("在场");
         visitor.setCheckInTime(DateTimes.now());
         updateById(visitor);
+        auditLogger.audit("VISITOR_CHECK_IN", String.valueOf(id), "SUCCESS",
+                "name=" + visitor.getVisitorName() + " host=" + visitor.getHostName());
         return getMasked(id);
     }
 
@@ -112,6 +121,8 @@ public class VisitorServiceImpl extends ServiceImpl<VisitorMapper, Visitor> impl
         visitor.setStatus("已签销");
         visitor.setCheckOutTime(DateTimes.now());
         updateById(visitor);
+        auditLogger.audit("VISITOR_CHECK_OUT", String.valueOf(id), "SUCCESS",
+                "name=" + visitor.getVisitorName() + " host=" + visitor.getHostName());
         return getMasked(id);
     }
 

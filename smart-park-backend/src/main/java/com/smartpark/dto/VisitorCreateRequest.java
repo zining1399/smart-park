@@ -36,6 +36,9 @@ public class VisitorCreateRequest {
     @Size(max = 255, message = "来访事由长度不能超过 255")
     private String reason;
 
+    // @Pattern 对 null 直接通过（Bean Validation 规范），因此必填枚举必须再叠 @NotBlank，
+    // 否则「不传 area」会绕过取值校验写进库（MySQL 5.7 会静默忽略 CHECK，应用层是唯一防线）
+    @NotBlank(message = "授权区域不能为空")
     @Pattern(regexp = ValidationPatterns.AREA, message = "area 仅支持 办公区 / 生产区 / 仓储区 / 生活区")
     private String area;
 

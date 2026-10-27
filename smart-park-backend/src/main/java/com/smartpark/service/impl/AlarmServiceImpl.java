@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.smartpark.common.AuditLogger;
 import com.smartpark.common.BizException;
 import com.smartpark.common.DateTimes;
 import com.smartpark.common.PageSupport;
@@ -15,6 +16,12 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class AlarmServiceImpl extends ServiceImpl<AlarmMapper, Alarm> implements AlarmService {
+
+    private final AuditLogger auditLogger;
+
+    public AlarmServiceImpl(AuditLogger auditLogger) {
+        this.auditLogger = auditLogger;
+    }
 
     @Override
     public Page<Alarm> pageQuery(int pageNum, int pageSize, String type, String level, String status) {
@@ -43,6 +50,8 @@ public class AlarmServiceImpl extends ServiceImpl<AlarmMapper, Alarm> implements
         }
         alarm.setStatus("已处理");
         alarm.setHandleTime(DateTimes.now());
+        auditLogger.audit("ALARM_HANDLE", String.valueOf(id), "SUCCESS",
+                "type=" + alarm.getType() + " level=" + alarm.getLevel());
         return alarm;
     }
 

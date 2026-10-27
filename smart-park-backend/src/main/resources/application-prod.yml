@@ -2,7 +2,8 @@
 spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${SMARTPARK_DB_HOST}:${SMARTPARK_DB_PORT:3306}/${SMARTPARK_DB_NAME}?connectionCollation=utf8mb4_0900_ai_ci&serverTimezone=Asia/Shanghai&useSSL=${SMARTPARK_DB_SSL:true}&allowPublicKeyRetrieval=false
+    # useServerPrepStmts=false 同上（dev 注释）：保证 DATETIME 走文本协议返回 19 位定长字符串
+    url: jdbc:mysql://${SMARTPARK_DB_HOST}:${SMARTPARK_DB_PORT:3306}/${SMARTPARK_DB_NAME}?connectionCollation=utf8mb4_0900_ai_ci&serverTimezone=Asia/Shanghai&useSSL=${SMARTPARK_DB_SSL:true}&allowPublicKeyRetrieval=false&useServerPrepStmts=false
     username: ${SPRING_DATASOURCE_USERNAME}
     password: ${SPRING_DATASOURCE_PASSWORD}
     hikari:

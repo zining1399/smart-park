@@ -3,6 +3,7 @@ package com.smartpark.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.smartpark.common.AuditLogger;
 import com.smartpark.common.BizException;
 import com.smartpark.common.PageSupport;
 import com.smartpark.entity.Material;
@@ -13,6 +14,12 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class MaterialServiceImpl extends ServiceImpl<MaterialMapper, Material> implements MaterialService {
+
+    private final AuditLogger auditLogger;
+
+    public MaterialServiceImpl(AuditLogger auditLogger) {
+        this.auditLogger = auditLogger;
+    }
 
     @Override
     public Page<Material> pageQuery(int pageNum, int pageSize, String name, String code, String category, String status) {
@@ -68,5 +75,7 @@ public class MaterialServiceImpl extends ServiceImpl<MaterialMapper, Material> i
             throw BizException.conflict("物资当前状态为「" + exist.getStatus() + "」，不可删除");
         }
         removeById(id);
+        auditLogger.audit("DELETE_MATERIAL", exist.getCode(), "SUCCESS",
+                "id=" + id + " name=" + exist.getName() + " valuable=" + exist.getValuable());
     }
 }

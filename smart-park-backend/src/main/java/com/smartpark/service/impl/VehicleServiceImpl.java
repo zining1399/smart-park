@@ -3,6 +3,7 @@ package com.smartpark.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.smartpark.common.AuditLogger;
 import com.smartpark.common.BizException;
 import com.smartpark.common.PageSupport;
 import com.smartpark.entity.Vehicle;
@@ -13,6 +14,12 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class VehicleServiceImpl extends ServiceImpl<VehicleMapper, Vehicle> implements VehicleService {
+
+    private final AuditLogger auditLogger;
+
+    public VehicleServiceImpl(AuditLogger auditLogger) {
+        this.auditLogger = auditLogger;
+    }
 
     @Override
     public Page<Vehicle> pageQuery(int pageNum, int pageSize, String plateNo, String ownerType, String status) {
@@ -56,9 +63,11 @@ public class VehicleServiceImpl extends ServiceImpl<VehicleMapper, Vehicle> impl
 
     @Override
     public void delete(Long id) {
-        if (getById(id) == null) {
+        Vehicle exist = getById(id);
+        if (exist == null) {
             throw BizException.notFound("车辆不存在");
         }
         removeById(id);
+        auditLogger.audit("DELETE_VEHICLE", exist.getPlateNo(), "SUCCESS", "id=" + id);
     }
 }

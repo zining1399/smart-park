@@ -3,6 +3,7 @@ package com.smartpark.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.smartpark.common.AuditLogger;
 import com.smartpark.common.BizException;
 import com.smartpark.common.PageSupport;
 import com.smartpark.entity.Employee;
@@ -18,9 +19,11 @@ import java.io.Serializable;
 public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> implements EmployeeService {
 
     private final SensitiveCrypto crypto;
+    private final AuditLogger auditLogger;
 
-    public EmployeeServiceImpl(SensitiveCrypto crypto) {
+    public EmployeeServiceImpl(SensitiveCrypto crypto, AuditLogger auditLogger) {
         this.crypto = crypto;
+        this.auditLogger = auditLogger;
     }
 
     @Override
@@ -76,10 +79,13 @@ public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> i
 
     @Override
     public void delete(Long id) {
-        if (super.getById(id) == null) {
+        Employee exist = super.getById(id);
+        if (exist == null) {
             throw BizException.notFound("员工不存在");
         }
         removeById(id);
+        auditLogger.audit("DELETE_EMPLOYEE", exist.getEmpNo(), "SUCCESS",
+                "id=" + id + " name=" + exist.getName());
     }
 
     /** 手机号：写入密文 + hash + mask；plain 为 null 表示不更新 */

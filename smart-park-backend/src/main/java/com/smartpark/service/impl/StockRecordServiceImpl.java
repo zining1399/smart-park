@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.smartpark.common.AuditLogger;
 import com.smartpark.common.BizException;
 import com.smartpark.common.DateTimes;
 import com.smartpark.common.PageSupport;
@@ -34,9 +35,11 @@ public class StockRecordServiceImpl extends ServiceImpl<StockRecordMapper, Stock
         implements StockRecordService {
 
     private final MaterialMapper materialMapper;
+    private final AuditLogger auditLogger;
 
-    public StockRecordServiceImpl(MaterialMapper materialMapper) {
+    public StockRecordServiceImpl(MaterialMapper materialMapper, AuditLogger auditLogger) {
         this.materialMapper = materialMapper;
+        this.auditLogger = auditLogger;
     }
 
     @Override
@@ -77,6 +80,7 @@ public class StockRecordServiceImpl extends ServiceImpl<StockRecordMapper, Stock
             throw BizException.conflict("物资状态已变更，请刷新后重试");
         }
         log.info("入库成功 materialCode={} recordId={}", material.getCode(), record.getId());
+        auditLogger.audit("STOCK_IN", material.getCode(), "SUCCESS", "recordId=" + record.getId());
         return record;
     }
 
@@ -127,6 +131,10 @@ public class StockRecordServiceImpl extends ServiceImpl<StockRecordMapper, Stock
         }
         log.info("出库申请成功 materialCode={} recordId={} approveStatus={}",
                 material.getCode(), record.getId(), record.getApproveStatus());
+        auditLogger.audit("STOCK_OUT", material.getCode(),
+                "待审批".equals(record.getApproveStatus()) ? "PENDING_APPROVE" : "SUCCESS",
+                "recordId=" + record.getId() + " borrower=" + record.getBorrower()
+                        + " valuable=" + material.getValuable());
         return record;
     }
 
@@ -146,6 +154,8 @@ public class StockRecordServiceImpl extends ServiceImpl<StockRecordMapper, Stock
                 throw BizException.conflict("审批状态已变更，请刷新后重试");
             }
             record.setApproveStatus("已驳回");
+            auditLogger.audit("APPROVE", String.valueOf(id), "REJECT",
+                    "materialCode=" + record.getMaterialCode() + " borrower=" + record.getBorrower());
             return record;
         }
 
@@ -174,6 +184,9 @@ public class StockRecordServiceImpl extends ServiceImpl<StockRecordMapper, Stock
         record.setApproveStatus("已批准");
         record.setOutTime(now);
         log.info("出库审批通过 recordId={} materialCode={}", id, material.getCode());
+        auditLogger.audit("APPROVE", String.valueOf(id), "APPROVED",
+                "materialCode=" + material.getCode() + " borrower=" + record.getBorrower()
+                        + " valuable=" + material.getValuable());
         return record;
     }
 
@@ -211,6 +224,8 @@ public class StockRecordServiceImpl extends ServiceImpl<StockRecordMapper, Stock
         }
         record.setReturnTime(now);
         log.info("归还成功 recordId={} materialCode={}", id, material.getCode());
+        auditLogger.audit("STOCK_RETURN", String.valueOf(id), "SUCCESS",
+                "materialCode=" + material.getCode() + " borrower=" + record.getBorrower());
         return record;
     }
 

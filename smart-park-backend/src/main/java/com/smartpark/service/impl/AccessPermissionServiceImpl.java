@@ -3,6 +3,7 @@ package com.smartpark.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.smartpark.common.AuditLogger;
 import com.smartpark.common.BizException;
 import com.smartpark.common.DateTimes;
 import com.smartpark.common.PageSupport;
@@ -15,6 +16,12 @@ import org.springframework.util.StringUtils;
 @Service
 public class AccessPermissionServiceImpl extends ServiceImpl<AccessPermissionMapper, AccessPermission>
         implements AccessPermissionService {
+
+    private final AuditLogger auditLogger;
+
+    public AccessPermissionServiceImpl(AuditLogger auditLogger) {
+        this.auditLogger = auditLogger;
+    }
 
     @Override
     public Page<AccessPermission> pageQuery(int pageNum, int pageSize,
@@ -35,6 +42,9 @@ public class AccessPermissionServiceImpl extends ServiceImpl<AccessPermissionMap
         permission.setTargetNo(permission.getTargetNo().trim().toUpperCase());
         permission.setStatus(calcStatus(permission.getEndTime()));
         save(permission);
+        auditLogger.audit("PERMISSION_GRANT", permission.getTargetType() + ":" + permission.getTargetNo(),
+                "SUCCESS", "area=" + permission.getArea() + " status=" + permission.getStatus()
+                        + " endTime=" + permission.getEndTime());
         return permission;
     }
 
@@ -52,10 +62,14 @@ public class AccessPermissionServiceImpl extends ServiceImpl<AccessPermissionMap
 
     @Override
     public void delete(Long id) {
-        if (getById(id) == null) {
-            throw new BizException("权限记录不存在");
+        AccessPermission exist = getById(id);
+        if (exist == null) {
+            throw BizException.notFound("权限记录不存在");
         }
         removeById(id);
+        // 权限回收属高敏操作，必须留痕
+        auditLogger.audit("PERMISSION_REVOKE", exist.getTargetType() + ":" + exist.getTargetNo(),
+                "SUCCESS", "id=" + id + " area=" + exist.getArea());
     }
 
     @Override

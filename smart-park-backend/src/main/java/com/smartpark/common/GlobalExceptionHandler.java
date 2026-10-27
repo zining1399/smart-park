@@ -75,6 +75,7 @@ public class GlobalExceptionHandler {
             case "uk_vehicle_plate_no" -> "车牌号已存在，请勿重复提交";
             case "uk_material_code" -> "物资编码已存在，请勿重复提交";
             case "uk_sys_user_username" -> "登录名已存在（不区分大小写），请更换";
+            case "uk_alarm_dedup_key" -> "该告警已存在（去重键冲突），无需重复上报";
             default -> "数据已存在，请勿重复提交";
         };
     }
