@@ -16,7 +16,7 @@
 | empNo | String | 工号，唯一 |
 | name | String | 姓名 |
 | dept | String | 部门 |
-| phone | String | 手机号密文，**禁止前端渲染**，展示请用 `phoneMask` |
+| phone | String | 出参中**已被掩码覆盖**（值恒等于 `phoneMask`），**非密文、不可解密**；展示请用 `phoneMask` |
 | phoneMask | String | 手机号掩码（前 3 后 4，如 `138****1234`），只读 |
 | status | String | 在职 / 离职 |
 
@@ -74,9 +74,9 @@
 |---|---|---|
 | id | Long | |
 | visitorName | String | 访客姓名 |
-| idCard | String | 身份证密文，**禁止前端渲染**，展示请用 `idCardMask` |
+| idCard | String | 出参中**已被掩码覆盖**（值恒等于 `idCardMask`），**非密文、不可解密**；展示请用 `idCardMask` |
 | idCardMask | String | 身份证掩码（前 6 后 4），只读 |
-| phone | String | 手机号密文，**禁止前端渲染**，展示请用 `phoneMask` |
+| phone | String | 出参中**已被掩码覆盖**（值恒等于 `phoneMask`），**非密文、不可解密**；展示请用 `phoneMask` |
 | phoneMask | String | 手机号掩码（前 3 后 4），只读 |
 | plateNo | String | 访客车牌（可空） |
 | hostName | String | 被访人 |
@@ -91,6 +91,7 @@
 
 - `GET /visitors`（条件：visitorName、hostName、status）分页，按 id 倒序。
 - `POST /visitors` 预约登记；`PUT /visitors/{id}` 修改；`DELETE /visitors/{id}`。
+- **`area` 三态约定**：新增时**必填**（不传返 `40001「授权区域不能为空」`）；修改时**不传 = 不改**（部分更新语义，DDL 允许 NULL 以保留"全园区通用访客"扩展空间）；但**显式传空串或纯空白一律返 `40001`**——空串不是 NULL，是脏数据，会让门禁按 area 匹配放行规则时判断出错。
 - `POST /visitors/{id}/check-in`：已预约→在场，写 checkInTime。
 - `POST /visitors/{id}/check-out`：在场/滞留预警→已签销，写 checkOutTime。
 - 定时任务：在场且当前时间 > expireTime → 置「滞留预警」并产生告警。
@@ -179,8 +180,13 @@
 |---|---|---|
 | 身份证掩码 | `idCardMask` | `id_card_mask` |
 | 手机号掩码 | `phoneMask` | `phone_mask` |
-| 身份证密文 | `idCard` | `id_card` |
-| 手机号密文 | `phone` | `phone` |
+| 身份证（出参被掩码覆盖） | `idCard` | `id_card` |
+| 手机号（出参被掩码覆盖） | `phone` | `phone` |
+
+> **⚠️ 关键：出参里 `idCard` / `phone` 这两个键是存在的，但值已被 `toMaskedView()` 覆盖成掩码，不是密文。**
+> 即 `idCard == idCardMask`、`phone == phoneMask`。二开若以为"这字段是 AES 密文"拿去 `crypto.decrypt()` 会直接抛异常。
+> `idCardHash` / `phoneHash` 恒为 `null`（服务端置空，不外泄）。
+> 前端一律读 `idCardMask` / `phoneMask`，不要读 `idCard` / `phone`。
 
 > **冻结说明**：JSON 一律**驼峰**（Jackson 未启用 snake_case 策略，实体字段即驼峰）。
 > 历史上出现过的 `phone_mask` 说法指的是 **DB 列名**，不是 JSON 字段名——这是本次命名不一致的根因，现以本表为准，前端不得再做 `phoneMask \|\| phone_mask` 双读容错。
@@ -204,24 +210,41 @@
 - 登录 `POST /auth/login`（匿名）→ `{ token, refreshToken, ... }`；`POST /auth/refresh` **免鉴权**（否则双 token 链路自断）。
 - 凭证：`Authorization: Bearer <token>`；access 2 小时，refresh 7 天。
 - 三角色：`ADMIN` 管理员 / `GATE` 门岗 / `STORE` 仓管。
+- 初始账号（`sys_user` 为空时由 `AdminInitializer` 自动创建，V1 不预置任何账号数据）：
+
+  | 登录名 | 角色 | 初始口令环境变量 | 未设置时 |
+  |---|---|---|---|
+  | `admin`（全小写） | ADMIN | `SMARTPARK_INIT_ADMIN_PASSWORD` | 随机 12 位，仅打印一次到日志 |
+  | `gate` | GATE | `SMARTPARK_INIT_GATE_PASSWORD` | 同上 |
+  | `store` | STORE | `SMARTPARK_INIT_STORE_PASSWORD` | 同上 |
+
+  **E2E/CI 必须显式注入这三个环境变量**，否则随机口令只能从启动日志抓，用例会拿假 user 兜底跑出一片假绿。
+  登录名在 `utf8mb4_0900_ai_ci` 下大小写不敏感，`ADMIN` 也能登 `admin` 的账号。
 - 账号禁用**即时生效**（每次请求查库校验 `status='启用'`），被禁用回 `40103`。
 
 | 端点 | ADMIN | GATE | STORE |
 |---|---|---|---|
-| `GET /employees`、`GET /vehicles` | ✓ | ✓ | ✗ |
-| `POST/PUT/DELETE /employees`、`/vehicles` | ✓ | ✗ | ✗ |
-| `GET /permissions` | ✓ | ✓ | ✗ |
+| `GET /employees/**`（列表 + 明细，同口径） | ✓ | ✓ | ✗ |
+| `POST/PUT/DELETE /employees/**` | ✓ | ✗ | ✗ |
+| `GET /vehicles/**`（列表 + 明细，同口径） | ✓ | ✓ | ✗ |
+| `POST/PUT/DELETE /vehicles/**` | ✓ | ✗ | ✗ |
+| `GET /permissions/**`（列表 + 明细，同口径） | ✓ | ✓ | ✗ |
 | `POST /permissions`、`PUT /permissions/{id}` | ✓ | ✓ | ✗ |
 | `DELETE /permissions/{id}` | ✓ | ✗ | ✗ |
 | `/access-records/**`（含 simulate） | ✓ | ✓ | ✗ |
 | `/visitors/**`（含 check-in / check-out） | ✓ | ✓ | ✗ |
-| `/materials/**` | ✓ | ✗ | ✓ |
+| `/materials/**`（列表 + 明细，同口径） | ✓ | ✗ | ✓ |
 | `GET /stock-records`、`POST /in`、`/out`、`/{id}/return` | ✓ | ✗ | ✓ |
 | `POST /stock-records/{id}/approve` | ✓ | ✗ | ✗（严格仅管理员，防仓管自我审批） |
 | `/alarms/**`、`/dashboard/**`、`/auth/**` | ✓ | ✓ | ✓ |
 
 > `POST/PUT /permissions` 给门岗的理由：门岗登记访客后必须能发权限/改有效期，否则业务链条断裂。
 > `DELETE` 收归管理员的理由：撤销风险高，且权限到期会自动失效，无需门岗手工删。
+>
+> **列表与明细必须同口径**：后端规则一律配 `/**` 通配。若只配列表路径（如 `/employees`），
+> `/employees/{id}` 会落到 `anyRequest().authenticated()`——它只保证"已登录"，不校验角色，
+> 于是"列表被挡、明细放行"就成了真越权（典型场景：门岗查不到物资列表，却能逐个 `GET /materials/{id}` 拿全量编码）。
+> 反向的"列表放行、明细被挡"则没有安全收益——列表接口返回的字段与明细完全一致，挡明细只增加摩擦。
 
 ### 错误码（已冻结，前端直接映射文案）
 
@@ -231,7 +254,7 @@
 | 40001 | 400 | 参数错误 / 业务校验失败 |
 | 40101 | 401 | 未登录或凭证无效 |
 | 40102 | 401 | 用户名或密码错误 |
-| 40103 | 401 | 账号已被禁用 |
+| 40103 | 401 | 账号已被禁用；**业务请求上也会出现**（禁用即时生效，每个请求都校验 `status='启用'`）。前端按出现位置分流：登录页仅提示不跳转，业务请求踢回登录并说明原因 |
 | 40301 | 403 | 无操作权限 |
 | 40401 | 404 | 资源不存在 |
 | 40901 | 409 | 冲突（唯一键重复 / 状态已变更） |
