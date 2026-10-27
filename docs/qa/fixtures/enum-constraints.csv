@@ -2,18 +2,20 @@
 chk_employee_status,employee,status,在职|离职,再职|未知,否,N/A,3819,chk_employee_status,0
 chk_vehicle_status,vehicle,status,正常|黑名单,黑名單|未知,否,N/A,3819,chk_vehicle_status,0
 chk_vehicle_owner_type,vehicle,owner_type,员工|访客|仓储,访客2|UNKNOWN,是,0,3819,chk_vehicle_owner_type,0
-chk_perm_target_type,access_permission,target_type,PERSON|VEHICLE,person|PERSONS,否,N/A,3819,chk_perm_target_type,0
+chk_perm_target_type,access_permission,target_type,PERSON|VEHICLE,PERSONS|CAR,否,N/A,3819,chk_perm_target_type,0
 chk_perm_status,access_permission,status,生效|临期|失效,生效中|未知,否,N/A,3819,chk_perm_status,0
 chk_perm_area,access_permission,area,办公区|生产区|仓储区|生活区,厂区|办公区2,否,N/A,3819,chk_perm_area,0
-chk_perm_time_range,access_permission,end_time>=start_time,2026-01-01 00:00:00~2026-12-31 23:59:59,2027-01-01 00:00:00~2026-01-01 00:00:00,否,N/A,暂缓,暂缓,暂缓
-chk_ar_pass_type,access_record,pass_type,PERSON|VEHICLE,person|CAR,否,N/A,3819,chk_ar_pass_type,0
+chk_perm_time_range,access_permission,end_time>=start_time,2026-01-01 00:00:00~2026-12-31 23:59:59,2027-01-01 00:00:00~2026-01-01 00:00:00,否,N/A,3819,chk_perm_time_range,0
+chk_ar_pass_type,access_record,pass_type,PERSON|VEHICLE,PERSONS|CAR,否,N/A,3819,chk_ar_pass_type,0
 chk_ar_result,access_record,result,放行|拦截,通过|未通过,否,N/A,3819,chk_ar_result,0
-chk_ar_direction,access_record,direction,IN|OUT,in|INOUT,是,0,3819,chk_ar_direction,0
+chk_ar_direction,access_record,direction,IN|OUT,INOUT|OUTIN,是,0,3819,chk_ar_direction,0
 chk_visitor_status,visitor,status,已预约|在场|已签销|滞留预警,已到场|未知,否,N/A,3819,chk_visitor_status,0
 chk_visitor_area,visitor,area,办公区|生产区|仓储区|生活区,厂区|办公区2,是,0,3819,chk_visitor_area,0
 chk_material_status,material,status,在库|在借|逾期|维修中,再库|报废,否,N/A,3819,chk_material_status,0
 chk_material_category,material,category,工具|备件|车辆,工具2|耗材,是,0,3819,chk_material_category,0
-chk_sr_type,stock_record,type,IN|OUT,RETURN|in,否,N/A,3819,chk_sr_type,0
+chk_sr_type,stock_record,type,IN|OUT,RETURN|INOUT,否,N/A,3819,chk_sr_type,0
 chk_sr_approve_status,stock_record,approve_status,免审|待审批|已批准|已驳回,审批中|已撤回,否,N/A,3819,chk_sr_approve_status,0
 chk_alarm_level,alarm,level,提示|警告|严重,一般|紧急,否,N/A,3819,chk_alarm_level,0
 chk_alarm_status,alarm,status,未处理|已处理,处理中|已关闭,否,N/A,3819,chk_alarm_status,0
+chk_sys_user_role,sys_user,role,ADMIN|GATE|STORE,SUPER|ROOT,否,N/A,3819,chk_sys_user_role,0
+chk_sys_user_status,sys_user,status,启用|禁用,锁定|UNKNOWN,否,N/A,3819,chk_sys_user_status,0

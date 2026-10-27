@@ -33,7 +33,7 @@ DB="${MYSQL_DATABASE:-smart_park}"
 STATUS=$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo missing)
 [ "$STATUS" = "healthy" ] || { echo "❌ 容器 $CONTAINER 状态=$STATUS，跳过备份"; exit 1; }
 
-TMP="$DIR/full_${DATE}.sql.gz.tmp"
+TMP="$DIR/full_${DATE}.sql.gz.part"   # 半成品标记：归档脚本据此判断备份未完成
 OUT="$DIR/full_${DATE}.sql.gz"
 
 # 关键：docker exec -i（不带 -t），容器内 socket 连接走 @'localhost' 授权

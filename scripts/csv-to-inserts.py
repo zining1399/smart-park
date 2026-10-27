@@ -6,12 +6,16 @@
 #   iconv -f GBK -t UTF-8 in.csv -o in_utf8.csv        # Excel 导出默认 GBK，必须先转码
 #   python3 scripts/csv-to-inserts.py <表> "<列1,列2,..>" <csv> [选项] > out.sql || 中止
 #   docker exec -i smart-park-mysql sh -c \
-#     'exec mysql --defaults-extra-file=/run/secrets/mig.cnf --default-character-set=utf8mb4 smart_park' \
+#     'exec mysql --defaults-extra-file=/run/secrets/app.cnf --default-character-set=utf8mb4 smart_park' \
 #     < out.sql 2> import_err.log
 #   [ -s import_err.log ] && { echo "导入失败，事务已回滚"; exit 1; }
 #
 # ⚠ 三条使用纪律：
-#   1. 必须用 mig.cnf（迁移账号）；用 bak.cnf（备份账号，仅 SELECT）导入会报 ERROR 1142
+#   1. 必须用 app.cnf（应用账号：仅 DML，无 DDL/DROP）；
+#      用 bak.cnf（备份账号，仅 SELECT）导入会报 ERROR 1142；
+#      不要用 mig.cnf（迁移账号带 DDL，不应暴露给高频的导入操作）
+#      权限边界：即便本脚本转义有 bug 或 .sql 被手工改过，最坏情况也只是"插入脏数据
+#      （可回滚、可被校验发现）"，不会变成删库
 #   2. 必须先 "> out.sql" 再导入，不能 ./csv-to-inserts.py ... | docker exec ... 直接管道：
 #      校验是"中途失败"语义（exit 4 且不写 COMMIT），管道会把已生成的部分灌进库里
 #   3. stderr 必须单独留存（2> import_err.log），QA 断言其 0 字节；不要合并进 stdout

@@ -64,6 +64,12 @@ jobs:
 
           echo "✅ 运维脚本自检通过（5 条路径）"
 
+      # 归档 SQL 静态校验（纯文本，无需 MySQL）：破坏性语句 / INSERT-DELETE 谓词一致 /
+      # 确定性排序 / ROW_COUNT 位置 / stock_record 完结条件
+      - name: 归档 SQL 静态校验
+        working-directory: .
+        run: python3 scripts/archive-lint.py docs/ops/archive.sql
+
   # ---------------------------------------------------------------- 后端
   backend:
     name: 后端构建与测试

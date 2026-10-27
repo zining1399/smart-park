@@ -1,13 +1,15 @@
 # 智慧园区管理系统 · 测试用例执行规格
 
 本文档是 `docs/api-contract.md`（契约）的下游产物：**契约说接口长什么样，本文档说怎么验它是对的**。
-共 **104 条**用例，按模块组织；每条给出「前置条件 / 步骤 / 断言点 / 期望错误码」，可直接照着实施。
+共 **110 条**用例，按模块组织；每条给出「前置条件 / 步骤 / 断言点 / 期望错误码」，可直接照着实施。
 
-> **关于"104 条"的计数口径（请对照阅读，勿误解为覆盖率缩水）**
-> - **107 = 用例条目数**（一份用例 = 一条业务路径）；
-> - 按参数化展开后，**实际执行断言实例 264 个**：鉴权矩阵 168（42 接口 × 4 种身份）、枚举约束矩阵 36（18 条 × 正向/负向，其中 `chk_perm_time_range` 待定暂不断言）、API 枚举校验 60（12 字段 × 5 类非法值）；
+> **关于"110 条"的计数口径（请对照阅读，勿误解为覆盖率缩水）**
+> - **110 = 用例条目数**（一份用例 = 一条业务路径），逐条可核（见 §13）。
+> - 对外汇报的 **107 条** 是同一份清单的另一种口径：把 TC-ENUM-03 的两个分支（03a/03b）合为 1 条、且未落地的 TC-AUD-01 暂不计数（110 − 3 = 107）。**两者不是两个数，是同一份文档的两套数法**，引用时注明口径即可。
+> - 按参数化展开后，**实际执行断言实例 268 个**：鉴权矩阵 168（42 接口 × 4 种身份）、CHECK 约束矩阵 40（20 条 × 正向/负向）、API 枚举校验 60（12 字段 × 5 类非法值）；
+> - 另有 **4 条口径登记项不参与参数化展开**（`material.status` 忽略语义、`visitor.area` 空值、PUT 路径已移除的 code / empNo / plateNo 三字段），它们的作用是防误判，不是新增断言量；
 > - 并发 4 条（TC-STK-11/22/23/24）另按 **10 并发 × 20 轮 = 800 次请求**执行；
-> - 参数化数据源见 `docs/qa/fixtures/`（三份 CSV，72 行展开为 264 个实例）。
+> - 参数化数据源见 `docs/qa/fixtures/`（三份 CSV，74 行展开为 268 个实例）。
 
 | 项 | 说明 |
 |---|---|
@@ -61,6 +63,20 @@
 | ⏳ 等 devops 管道 | 依赖 `csv-to-inserts.py` 与迁移脚本 | TC-MIG-02 / 08 / 12 |
 | 🔀 条件执行 | 默认空库上线路径跳过；客户确认有 H2 存量时执行 | TC-MIG-01、与 H2 侧对账相关的断言 |
 
+### 0.5 执行环境（本机 / CI / 现场，决定谁能跑）
+
+> 本机实测 `docker: command not found`（team-lead 确认），因此依赖 Testcontainers 拉起 **MySQL 8 容器**的用例**本机一条也跑不了**。这是环境限制不是用例缺陷：
+> **代码照写、语法与结构自检做到位，真实执行交给 CI（GitHub Actions 有 docker）与客户现场验收。不得因为本机跑不了就跳过不写。**
+
+| 标记 | 可执行环境 | 涉及用例 | 说明 |
+|---|---|---|---|
+| 🖥️ | 本机可直接执行（无需 docker） | §10 前端 E2E 全 15 条（需前端已在 5173 起服务）、§11 TC-SEC-03 静态扫描、§8 的 D 类 SQL 直查（需指向目标库） | — |
+| 🐳 | **必须 CI 或现场执行**（依赖 docker 拉起 MySQL 8 容器） | **§2 鉴权矩阵全 13 条、§3~§7 全部 A 载体用例、§9.1/9.4 的 D 载体 CHECK 断言（容器库）、§11 TC-SEC-01、TC-AUD-01** | 对应 `smart-park-backend/src/test` 下的 `*IntegrationTest` 族；本机执行会因 `disabledWithoutDocker=true` 自动跳过 |
+| 👷 | 必须现场/割接窗口执行（依赖生产环境或真实管道） | TC-SMOKE-01、§8 全部 M/D 载体用例、§12 非功能全部 | 本机与 CI 均无法替代 |
+
+> 容器共性前提：测试基类 `MySqlIntegrationTest` 以 `mysql:8.0` 启动容器并注入 `+08:00` 时区与 `utf8mb4`；
+> CI 上若容器拉取失败（网络受限），需**标记为环境失败而非用例失败**，不得直接判定 PASS。
+
 ---
 
 ## 1. 冒烟（第一关，不过此关其余测试无意义）
@@ -73,7 +89,15 @@
 
 ---
 
-## 2. 鉴权与安全基线（⏳ 全部依赖 M2 骨架）
+## 2. 鉴权与安全基线（🐳 M2 已落地；必须 CI / 现场执行，本机无 docker 跑不了）
+
+> **权限矩阵 = 42 接口 × 4 身份 = 168 实例**，数据源 `docs/qa/fixtures/auth-matrix.csv`（与 `TC-AUTH-03` 参数化测试共用同一份文件）。
+> 本节演进记录（写在这是为了防止以后有人按旧结论改回去）：
+> - **`/api/auth/refresh` 必须免鉴权**（backend 自查发现并已修）：原先被 `/auth/** → authenticated` 覆盖，导致"access 过期 → 调 refresh → refresh 也 401 → 直接踢登录"，双 token 形同虚设。矩阵里"未登录对 refresh 期望 0"是对的。
+> - **`GET /api/materials`（及 `/api/materials/{id}`）门岗 = 40301**（team-lead 裁决：门岗在门口，查物资台账无业务场景 + 物资编码与价值信息不该对门岗开放）。
+> - **`POST /api/permissions`、`PUT /api/permissions/{id}` 门岗 = 放行**（team-lead 裁决：登记 → 授权 → 通行，缺授权则门岗业务闭环不了）。此条同时挂客户待确认项「现场授权 vs 集中管理」。
+> - **`POST /api/stock-records/{id}/approve` 严格 ADMIN-only** 保持。
+> - 越权拦截点是 URL 级 `requestMatchers`（进 Controller 之前），因此"越权时业务未执行"可**直接验副作用**（仓管调 simulate 无流水、门岗调 out 无单据），不依赖 mock。
 
 | 用例ID | 优先级 | 载体 | 前置条件 | 步骤 | 断言点与期望 |
 |---|---|---|---|---|---|
@@ -88,6 +112,8 @@
 | TC-AUTH-09 | P0 | A+E | 有访客数据 | ① GET /api/visitors 取列表；② 抓包检查响应体原文 | ① idCard 匹配 `^\d{6}\*{4,}\d{4}$`（前 6 后 4 中间打码）；② 响应体原文**不含 18 位明文身份证**；③ 数据库 `id_card` 列为**密文**（裁决 17：cipher 列），不得出现明文 18 位 |
 | TC-AUTH-10 | P0 | A | 有访客数据 | GET /api/visitors/{id}、PUT /api/visitors/{id} 响应体逐个检查 | 同上脱敏 + 库内密文；**逐个接口验证，防单接口漏脱敏** |
 | TC-AUTH-11 | P1 | D | 日志文件 | 全局检索 18 位身份证号、明文密码 | 无命中（身份证加密三列落地后，日志中亦不得出现明文） |
+| **TC-AUTH-12** | P0 | A | admin 已登录取得 token | ① 用 token 访问 /api/auth/me（code=0）；② `UPDATE sys_user SET status='禁用'`；③ **用同一个未过期 token** 再访问；④ 用该账号重新登录；⑤ 改回「启用」后原 token 再访问 | ③ **40103**（不是放行）；④ 40103；⑤ 恢复 0。覆盖"无状态 JWT 无法即时吊销"的解法：filter 每次请求查库且带 `status='启用'` 条件，**无需黑名单表**。⏳ backend 修复前本用例 FAIL（缺陷信号，不得改对） |
+| **TC-AUTH-13** | P0 | A+D | 已有账号 `admin` | ① 插入 `ADMIN`（不同大小写）；② 用 `Admin` 登录；③（待有用户管理接口后）API 创建同名账号 | ① **ERROR 1062** 且消息含 `uk_sys_user_username`（不是 3819——两者不可混写）；② **登录成功**（ci 是刻意选择，正向钉住）；③ 返回 **40901「登录名已存在」**，**不得冒泡 50001**。⏳ ③ 依赖用户管理接口，当前 42 接口中不含，暂挂起 |
 
 ---
 
@@ -209,17 +235,21 @@ WHERE m.status <> '在借' AND r.approve_status IN ('免审','已批准') AND r.
 | 用例ID | 优先级 | 载体 | 前置条件 | 步骤 | 断言点与期望 |
 |---|---|---|---|---|---|
 | TC-MIG-01 🔀 | P0 | D+M | 客户有 H2 存量数据 | ① H2 侧逐表 COUNT；② 导入后 MySQL 侧逐表 COUNT | 8 张表行数一一相等 |
-| **TC-MIG-02** | P0 | M+D | 源数据文件、目标库就绪 | ① **源端正则预检**：对 CSV 全部时间列跑 `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$`；② 执行导入（stderr 重定向到日志文件）；③ 目标端查零值日期 | ① 源端脏值处数 = **0**（最早暴露，远早于导入中途失败）；② **导入日志 0 字节**（脏数据表现为整行报错中止；有任何 ERROR/WARNING 均需逐条看完）；③ `SELECT COUNT(*) FROM access_record WHERE pass_time='0000-00-00 00:00:00'` = **0**（目标端兜底） |
-| TC-MIG-03 | P0 | D | 导入完成 | ① 列表按时间排序（passTime 倒序）；② `SELECT MIN(pass_time), MAX(pass_time)`；③ 查会话 sql_mode；④ 大小写行为验证 | ① 排序正确（DATETIME 与原字符串序可能不同，重点验跨年/跨月）；② MIN/MAX 落在真实业务时间区间内；③ `@@sql_mode` **同时含 `STRICT_TRANS_TABLES` 与 `NO_ZERO_DATE`**（验证转换脚本真把 sql_mode 写进了生成的 .sql 头部）；④ **钉住行为变化**：`emp_no='E001'` 与 `'e001'` 在 `utf8mb4_0900_ai_ci`（ci + NO PAD）下查到同一行——**这是预期行为变化，不是 bug**，用此用例固定住，防止以后被人当缺陷上报 |
+| **TC-MIG-02** | P0 | M+D | 源数据文件、目标库就绪 | ① **源端正则预检**：对 CSV 全部时间列跑 `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$`；② 执行导入（stderr 重定向到日志文件）；③ 目标端查零值日期；④ **行为断言**：插入 `2026-13-45 00:00:00` | ① 源端脏值处数 = **0**（最早暴露，远早于导入中途失败）；② **导入日志 0 字节**（脏数据表现为整行报错中止；有任何 ERROR/WARNING 均需逐条看完）；③ `SELECT COUNT(*) FROM access_record WHERE pass_time='0000-00-00 00:00:00'` = **0**（目标端兜底）；④ **必须报错中止**（非零但非法的日期）。④ 是**只依赖 `STRICT_TRANS_TABLES`、不依赖 `NO_ZERO_DATE`** 的退路断言：将来 `NO_ZERO_DATE` 被移除时，本条仍有效，只需把零值那条降级为可选，不会出现整条用例失效 |
+
+> **`sql_mode` 必须双断言，缺一即 FAIL（team-lead 裁定 + data-engineer 复核）**：
+> `STRICT_TRANS_TABLES` 管的是"非法值报错还是静默截断"，`NO_ZERO_DATE` 管的是"零值日期被拒还是被接受"，**是两条不同防线**。
+> 客户很可能只配了前者没配后者，此时 `'0000-00-00 00:00:00'` 会被**静默接受**（不报错也不警告）——正是最怕的"静默污染"：一个零值混进 `pass_time`，排序与区间查询全部失真且看不出异常。**所以 `NO_ZERO_DATE` 也必须列为必查项**。
+| TC-MIG-03 | P0 | D | 导入完成 | ① 列表按时间排序（passTime 倒序）；② `SELECT MIN(pass_time), MAX(pass_time)`；③ 查会话 sql_mode；④ 大小写行为验证 | ① 排序正确（DATETIME 与原字符串序可能不同，重点验跨年/跨月）；② MIN/MAX 落在真实业务时间区间内；③ **sql_mode 双重断言**：**.sql 头部**须写入 `SET SESSION sql_mode='STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,…'`（**会话级强制**，即使服务端全局被改宽松，导入会话仍严格）；**同时**导入前用 runbook §7 的命令断言**服务端全局 sql_mode** 含 `STRICT_TRANS_TABLES`（防配置漂移）。两者是两件事，都要断；④ **钉住行为变化**：`emp_no='E001'` 与 `'e001'` 在 `utf8mb4_0900_ai_ci`（ci + NO PAD）下查到同一行——**这是预期行为变化，不是 bug**，用此用例固定住，防止以后被人当缺陷上报 |
 | TC-MIG-04 🔀 | P0 | D | 导入完成 | 孤儿引用检查（两类） | ① `SELECT DISTINCT sr.material_code FROM stock_record sr LEFT JOIN material m ON sr.material_code=m.code WHERE m.code IS NULL` = **0 行**；② `access_permission.target_type='PERSON'` 且 `target_no` 在 employee 中不存在的条数 = **0 行**。⚠️ **演示数据 `data.sql` 下本项预期非零**（已知 `alarm` 引用不存在的 `M-SPARE-009`）——该场景作为**检查脚本有效性的反向验证**，正式数据下必须 0 |
 | TC-MIG-05 | P0 | A | 导入完成（空库路径用造数） | 在导入数据上执行 check-in/out、return、审批等操作 | 时间字段写入为 DATETIME 正常值；前端显示仍为 `yyyy-MM-dd HH:mm:ss` |
 | **TC-MIG-06** | P1 | M+D | 容器 TZ 可设置 | 环境矩阵：TZ=Asia/Shanghai 与 TZ=UTC 各插一条通行记录 | TZ=Asia/Shanghai **必过**：`NOW()/UTC_TIMESTAMP()/@@time_zone` 一致为北京时间，API 返回 passTime 与库内 pass_time 一致；TZ=UTC 为**已知缺陷（偏移 8 小时）**，修复前若客户环境为 UTC → **No-Go** |
 | TC-MIG-07 | P1 | M | 迁移前快照 | 执行回滚 | 可回退到迁移前状态 |
-| **TC-MIG-08** | P0 | M+D | 造 1 份含脏日期行的测试 CSV | ① 执行导入；② 查**该表**行数；③ **换乱列序**的 CSV 再跑一次 | ① **该表行数 = 0**（.sql 需首尾包 `SET autocommit=0`/`COMMIT`）；行数 > 0 = 部分导入 = FAIL。依据：半成品库比完全失败更危险（有数据、行数接近，现场易误判成功）；② **口径：每张表一个事务，表内原子、表间不原子**——其他表不受影响是**预期，不得判 FAIL**；③ **列序错乱必须在转换阶段报"列名不匹配"并整体中止**，不得按位置静默映射（否则"员工姓名"被写进"身份证"列，导入不报错、上线才发现数据全错） |
+| **TC-MIG-08** | P0 | M+D | 造 1 份含脏日期行/非法枚举行的测试 CSV | ① 执行转换 + 导入；② 查**该表**行数；③ **换乱列序**的 CSV 再跑一次 | ① **该表行数与导入前一致**（空表则为 0）。脚本遇错 **exit 4** 且不输出 `COMMIT;`（stderr 形如 `[ABORT] 第 1 行枚举非法…`）；行数增加 = 部分导入 = FAIL。依据：半成品库比完全失败更危险（有数据、行数接近，现场易误判成功）；② **口径：每张表一个事务，表内原子、表间不原子**——其他表不受影响是**预期，不得判 FAIL**；③ **列序错乱必须在转换阶段报"列名不匹配"并整体中止**，不得按位置静默映射（否则"员工姓名"被写进"身份证"列，导入不报错、上线才发现数据全错） |
 | TC-MIG-09 | P0 | A+D | — | ① API 用 `e1001` 建员工、再用 `E1001` 建；② SQL 直查 | ① 第二次被拒（HTTP 409 / 40901）；② 唯一键在 ci collation 下不产生两条 |
 | TC-MIG-10 | P1 | A | 库存车牌「新A12345」 | 模拟通行传「新a12345」 | 应能匹配（ci collation 特性）【待确认：产品期望这是特性还是缺陷】 |
 | TC-MIG-11 | P1 | A+D | — | 录入含中文 + emoji 的备注后回查 | 完整显示、无 `???`；utf8mb4 生效 |
-| **TC-MIG-12** | P0 | M+D | 造测试 CSV：GBK 编码 + 小写工号 `e1001` + 非法 status「再職」+ 尾空格 | 运行 `csv-to-inserts.py` 转换 | ① **转换阶段即报错并给出行号**，不生成 .sql；绝不进入「导入到第 N 行才失败」；② **编码：非 UTF-8（GBK）文件直接拒绝中止**，并明确提示「请用 Excel 另存为 CSV UTF-8」——**不得自动 iconv 转码后继续**（静默转码会掩盖客户 Excel 的源头问题，且客户重存成本极低，此为拍板口径）；③ 业务键小写与脏枚举同样在转换阶段拦截。⏳ 依赖脚本实现行级预校验（编码 + 业务键 + 枚举 + 列名四查） |
+| **TC-MIG-12** | P0 | M+D | 造测试 CSV：GBK 编码 + 小写工号 `e1001` + 非法 status「再職」+ 空业务键 + 列数不符 | 运行 `csv-to-inserts.py` 转换（管道已由 devops 落地） | 四查全部在**转换阶段**报行号并整体中止（**exit 4**，stdout 末行为 `START TRANSACTION;`、`COMMIT;` 缺失）：① 编码：非 UTF-8 → `[ABORT] 编码预校验失败…请先执行 iconv -f GBK -t UTF-8`，**不得自动转码后继续**（拍板口径）；② 业务键**空值** → `[ABORT] 第 N 行业务键 emp_no 为空`；③ 枚举非法 → 报行号 + 合法值清单；④ 列数不符 → 报行号。⚠️ **例外（不要写成应报错）**：业务键**小写不报错**，被**自动大写归一化**（`e1001` → `E1001`）——这是期望行为。⏳ 列名校验（换乱列序）见 TC-MIG-08 第③步 |
 
 | **TC-MIG-13** | P1 | D | UAT 阶段，造数据：含 `type='OUT' AND return_time IS NULL` 的未完结出库单 | 执行 `docs/ops/archive.sql` 归档作业，随后查归档表 | 归档表中 `type='OUT' AND return_time IS NULL` 的行数 = **0**。专门防「归档条件写反，把在外未还的单据搬走」——这类事故在归档后不可见，客户对账时才发现 |
 
@@ -237,7 +267,7 @@ WHERE m.status <> '在借' AND r.approve_status IN ('免审','已批准') AND r.
 |---|---|---|---|---|
 | **TC-ENUM-01** | P0 | D | 对每条约束：① 正向插 1 条合法值；② 负向插 1 条非法值 | 负向必须报 **MySQL 错误号 3819** 且错误消息**含该约束名**（双条件，排除 1364/1406/1062/1146 假通过）；正向全部成功 |
 
-约束清单（**17 条已建 + 1 条待定**；约束名以完整表名为准，与 data-engineer 的 `V1__init.sql` 对齐）：
+约束清单（**20 条，已固化**；与 `V1__init.sql` 实测逐字对齐，环境验收可用 `information_schema.TABLE_CONSTRAINTS` 核对 20 行）：
 
 | 约束名 | 表.字段 | 合法值 | 可空 |
 |---|---|---|---|
@@ -247,7 +277,7 @@ WHERE m.status <> '在借' AND r.approve_status IN ('免审','已批准') AND r.
 | chk_perm_target_type | access_permission.target_type | PERSON / VEHICLE | 否 |
 | chk_perm_status | access_permission.status | 生效 / 临期 / 失效 | 否 |
 | chk_perm_area | access_permission.area | 办公区 / 生产区 / 仓储区 / **生活区** | 否 |
-| ~~chk_perm_time_range~~ | access_permission（end_time ≥ start_time） | 范围约束 | — |
+| chk_perm_time_range | access_permission（end_time >= start_time） | 范围约束 | — |
 | chk_ar_pass_type | access_record.pass_type | PERSON / VEHICLE | 否 |
 | chk_ar_result | access_record.result | 放行 / 拦截 | 否 |
 | chk_ar_direction | access_record.direction | IN / OUT | **是** |
@@ -259,6 +289,8 @@ WHERE m.status <> '在借' AND r.approve_status IN ('免审','已批准') AND r.
 | chk_sr_approve_status | stock_record.approve_status | 免审 / 待审批 / 已批准 / 已驳回 | 否 |
 | chk_alarm_level | alarm.level | 提示 / 警告 / 严重 | 否 |
 | chk_alarm_status | alarm.status | 未处理 / 已处理 | 否 |
+| chk_sys_user_role | sys_user.role | ADMIN / GATE / STORE | 否 |
+| chk_sys_user_status | sys_user.status | 启用 / 禁用 | 否 |
 
 > **刻意不建 CHECK 的两列**（用例里**不得**写"应报错"，反而要写正向用例钉住）：
 > - `access_record.gate`：门岗四门由 Java 层 `GATE_AREA` 拦截，DB 再拦会导致客户新增道闸要改两处 DDL。
@@ -267,14 +299,21 @@ WHERE m.status <> '在借' AND r.approve_status IN ('免审','已批准') AND r.
 > **可空 4 列**（`vehicle.owner_type`、`material.category`、`access_record.direction`、`visitor.area`）：
 > MySQL CHECK 对 NULL 判定为「未知 → 通过」，NULL 必须**能插入**，见 TC-ENUM-04（极易被误写成"应报错"）。
 >
-> **`chk_perm_time_range` 现状：V1 未建，待定**。属性：权限有效期倒挂约束。data-engineer 评估是否补建 → **暂不断言**（不删、不断言），team-lead 回报后固化。最终条数 17 或 18 取决于此。
+> **`chk_perm_time_range` 已建，语义 `end_time >= start_time`（team-lead 终裁）**：
+> - `end_time < start_time`（真倒挂）→ **3819 + 约束名**
+> - `end_time = start_time`（零时长）→ **放行，不报错**。理由：拦零时长是业务判断不是数据完整性判断；客户批量导入历史权限时"当天有效"很容易撞上，为它挡住一次导入代价过大。真要管，放 API 层。
+> - ⚠️ **不要**断言"零时长应报 3819"。
+>
+> **大小写陷阱（写负向样本时必看）**：`utf8mb4_0900_ai_ci` 大小写不敏感，所以 `PERSON`/`person`、`IN`/`in` 在 DB 层是**同一个值**——用小写做非法值样本会得到"应该报错却放行"的假通过。负向样本一律用 `PERSONS`/`INOUT`/`CAR` 这类**不同词**，不用大小写变体。
+> （对应地，小写/尾空格在**API 层**必须被拒——那是另一层的断言，见 TC-ENUM-02。）
 
 ### 9.2 防线归属总表（决定用例优先级与断言归属）
 
 | 字段 | 外部可传入 | 应用层校验 | 防线归属 | 测试落点 |
 |---|---|---|---|---|
-| employee.status / vehicle.status / vehicle.owner_type / material.status / material.category / access_permission.area | ✅ | ❌（area 仅非空） | 🔴 DB CHECK 是最后防线 | TC-ENUM-01 强断言 + TC-ENUM-02 API 层 |
-| visitor.area | ✅ | ❌ | 🟢 V1 已建 `chk_visitor_area`，DB 是唯一防线 | **TC-ENUM-01 强断言（3819 + 约束名）** + TC-ENUM-02 API 层 |
+| employee.status / vehicle.status / vehicle.owner_type / material.category / access_permission.area | ✅ | ❌（area 仅非空） | 🔴 DB CHECK 是最后防线 | TC-ENUM-01 强断言 + TC-ENUM-02 API 层 |
+| visitor.area | ✅ | ⏳ 待补 `@NotBlank` | 🟡 **分层**：DB CHECK 只拦非空值（NULL 放行）→ API 必填才是主防线 | TC-ENUM-04（DB 插 NULL **放行**）+ TC-ENUM-02（API 传空 **40001**，当前预期 FAIL）+ TC-ENUM-01（非空非法值 3819 + 约束名） |
+| material.status | ❌（DTO 已移除） | — | ⚪ 外部传不进来，服务端固定为「在库」 | **不写"非法 status 期望 40001"**，改为忽略语义（见 §9.3 口径登记） |
 | access_permission.target_type / time_range | ✅ | ✅ validate() | 🟢 双层 | 回归集（验证校验未被删） |
 | access_record.pass_type / direction | ✅ | ✅ @Pattern | 🟢 双层 | 回归集 |
 | access_record.gate | ✅ | ✅ GATE_AREA 抛异常 | 🟢 仅应用层 | TC-ACC-07（API 层），不测 DB |
@@ -284,11 +323,28 @@ WHERE m.status <> '在借' AND r.approve_status IN ('免审','已批准') AND r.
 
 | 用例ID | 优先级 | 载体 | 步骤 | 断言点与期望 |
 |---|---|---|---|---|
-| **TC-ENUM-02** | P0（7 字段）/ P1（5 字段） | A | 对每个字段，API 提交非法值：中文错字「再职」、繁体「黑名單」、小写 `person`、尾空格 `'PERSON '`、空串 | HTTP 400、code=40001、**拒绝入库** |
+| **TC-ENUM-02** | P0（6 字段）/ P1（5 字段） | A | 对每个字段，API 提交非法值：中文错字「再职」、繁体「在職」、小写 `person`、尾空格 `'PERSON '`、空串 | HTTP 400、code=40001、**拒绝入库** |
 
-- **P0 断言集（7 字段，API 是唯一防线）**：employee.status、vehicle.status、vehicle.owner_type、material.status、material.category、access_permission.area、visitor.area。
+- **P0 断言集（6 字段，API 是唯一防线）**：employee.status、vehicle.status、vehicle.owner_type、material.category、access_permission.area、visitor.area。
+  - ⚠️ **`material.status` 已移出本集**：backend 把 status 从 DTO 移除、服务端固定新建为「在库」（修改时以库中值为准），非法值**到不了应用层**。该字段改为**忽略语义**断言（见下方口径登记）——**不得**再写"传非法 status 期望 40001"，那样会得到 200 并被误判成缺陷。
 - **P1 回归集（5 字段，验证既有校验未被删除）**：target_type、pass_type、direction、gate、time_range。
-- PASS 判定基线：backend 任务 10 的 DTO 清单与 6 个 🔴 字段一一对应；**任一 P0 字段 FAIL = DTO 校验漏项**，可直接定位责任方。
+- PASS 判定基线：backend 的 DTO 清单与 6 个 P0 字段一一对应；**任一 P0 字段 FAIL = DTO 校验漏项**，可直接定位责任方。
+
+**口径登记项（4 条；不参与参数化展开，作用是防误判）**
+
+| 字段 / 路径 | 现状 | 断言口径 |
+|---|---|---|
+| `material.status`（POST / PUT） | DTO 已移除，值被忽略 | **忽略语义**：传非法值期望 **code=0 / HTTP 200**，且落库 status 仍为合法枚举 |
+| `visitor.area` 空值 | 只有 `@Pattern` 无 `@NotBlank`；`@Pattern` 对 `null` **视为通过** → 空值双向裸奔 | **目标态 40001**。**当前预期 FAIL**（backend 补 `@NotBlank` 之前）。⏳ 补完转 PASS。**不得为了让用例转绿而放宽断言** |
+| `material.code`（PUT）/ `employee.empNo`（PUT）/ `vehicle.plateNo`（PUT） | 已从入参移除 | **禁止写 40001 断言**：非法值被忽略，期望 200 |
+
+> **`visitor.area` 的分层交叉验证（team-lead 裁定）——「API 必填 + DB 可空」两侧不是矛盾，是分层**：
+> - **DB 侧**：直插 NULL → **放行**（`chk_visitor_area` 写的是 `area IS NULL OR area IN (...)`，CHECK 对 NULL 判定为"未知→通过"），断言落在 **TC-ENUM-04**；
+> - **API 侧**：传空 → **40001**（目标态），断言落在 **TC-ENUM-02**；
+> - **为什么 API 必填**：访客登记若不知道去哪个区域，门岗放行就没有判断依据；
+> - **为什么 DB 不收紧**：允许 NULL 保留了"全园区通用访客"的扩展空间，将来支持不用改表（与 `alarm.type` 刻意不建 CHECK 同理）。
+> - **改动落点**：**DDL 不动**（V1 已冻结，改 `NOT NULL` 是破坏性变更且需回填），**只在 API 层补 `@NotBlank`**，与 `access_permission.area`（`@NotBlank` + `@Pattern` 双保险）口径一致。
+> - **影响面（data-engineer 核实）**：`visitor.area` 在 Service / 定时任务里无消费点，**不会崩**，影响是业务完整性；且 update 路径走 `updateById()`（NOT_NULL 策略）不会把已有 area 清成 null，**风险只在 create**。
 
 ### 9.4 尾空格与大小写（03a / 03b）
 
@@ -342,6 +398,7 @@ WHERE m.status <> '在借' AND r.approve_status IN ('免审','已批准') AND r.
 | TC-SEC-01 | P0 | A | 触发未捕获异常（如传类型不符参数） | 响应体：`code=50001`、message=「系统繁忙，请稍后重试」、**含 traceId**；**不得**含表名/字段名/SQL 片段/堆栈。详情按 traceId 在服务端日志可查 |
 | TC-SEC-02 | P0 | D | 直连数据库查访客表 | `id_card` 列为**密文**（裁决 17：cipher + hash + mask 三列）；**不得出现明文 18 位身份证**；手机号同理。命中即 No-Go |
 | **TC-SEC-03** | P0 | D | 静态扫描全仓脚本与代码：`*.sql`、`*.sh`、`*.py`、`docs/ops/*` | **不得出现任何加解密实现**（如 `AES_ENCRYPT`/`AES_DECRYPT`、openssl 命令行、pycryptodome/JCE 调用、硬编码密钥字符串）。密钥一旦落进脚本与 shell history 即泄露。命中即 **Blocker**（红线裁定）。加解密只允许经 backend 的 CryptoService 在应用内完成 |
+| **TC-AUD-01** | P1 | A | 执行登录、审批、模拟通行（放行拒绝）三类关键操作 | 读取本次响应的 traceId，捕获全部日志事件 | 每类操作必须产生**一条 INFO 级、内容含该 traceId** 的审计日志（可实现方式见 `src/test/java/com/smartpark/security/AuditLogTest.java`，logback 内存 Appender 捕获）。⏳ backend 审计日志落地前保持 @Disabled，落地后启用 |
 
 ---
 
@@ -367,7 +424,7 @@ WHERE m.status <> '在借' AND r.approve_status IN ('免审','已批准') AND r.
 | 章节 | 区间 | 条数 |
 |---|---|---|
 | 1 冒烟 | SMOKE-01 | 1 |
-| 2 鉴权与安全 | AUTH-01~11 | 11 |
+| 2 鉴权与安全 | AUTH-01~13 | 13 |
 | 3 门禁 | ACC-01~10 | 10 |
 | 4 访客 | VIS-01~10 | 10 |
 | 5 仓管 | STK-01~25 | 25 |
@@ -376,8 +433,8 @@ WHERE m.status <> '在借' AND r.approve_status IN ('免审','已批准') AND r.
 | 8 迁移割接 | MIG-01~13（含 1 条留存期待定占位） | 13 |
 | 9 枚举 | ENUM-01、02、03a、03b、04、05 | 6 |
 | 10 前端 E2E | FE-01~15 | 15 |
-| 11 安全补充 | SEC-01~03 | 3 |
-| **合计** | | **107** |
+| 11 安全与审计 | SEC-01~03、AUD-01 | 4 |
+| **合计** | | **110** |
 
 | 执行载体 | 条数 |
 |---|---|

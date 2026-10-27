@@ -19,6 +19,12 @@
 
 ## 2. 首次部署（一键）
 
+> ⚠ **前端地址是构建期变量，不是运行时变量**：Vite 的 `VITE_API_BASE` / `VITE_BASE` 会在
+> `npm run build` 时内联进产物 JS。客户现场改了 `.env` 后执行 `docker compose up -d`
+> **前端仍指向旧地址**——必须 `docker compose build frontend`（或重新导入镜像）才生效。
+> 同域根路径部署使用默认值（`/api`、`/`）即可，无需任何前端环境变量；只有子路径部署
+> （如 `http://host/park/`）才需要显式设置 `VITE_BASE=/park/` 并重新构建。
+
 ```bash
 # ① 准备配置
 cp .env.example .env && chmod 600 .env && vi .env     # 填写所有空值（密码用 openssl rand 生成）
@@ -141,9 +147,10 @@ python3 scripts/csv-to-inserts.py employee "emp_no,name,dept,phone,status" \
   || { echo "❌ 预校验未通过，未生成 COMMIT，导入中止"; exit 1; }
 
 # ③ 导入（docker exec -i，不加 -t 防 CR 污染）
-#    ⚠ 必须用 mig.cnf（迁移账号）；bak.cnf 是备份账号（仅 SELECT），拿它导入会报 ERROR 1142
+#    ⚠ 必须用 app.cnf（应用账号：仅 DML）；bak.cnf 是备份账号（仅 SELECT），拿它导入会报 ERROR 1142；
+#      也不要用 mig.cnf（迁移账号带 DDL，不应暴露给高频导入操作）
 docker exec -i smart-park-mysql sh -c \
-  'exec mysql --defaults-extra-file=/run/secrets/mig.cnf --default-character-set=utf8mb4 smart_park' \
+  'exec mysql --defaults-extra-file=/run/secrets/app.cnf --default-character-set=utf8mb4 smart_park' \
   < /import/employee.sql 2> /import/import_err.log
 
 # ④ 校验（不可跳过）
@@ -159,7 +166,8 @@ docker exec -i smart-park-mysql sh -c \
 4. **列名校验**：CSV 表头必须存在，且与目标列**按名称匹配**，不接受按位置静默映射——防止客户 Excel 列序调整后"导入不报错但数据全错"（这类事故只能靠全量对账发现，代价极高）。
 
 > **导入的三条使用纪律**：
-> 1. 必须用 `mig.cnf`（迁移账号）；`bak.cnf`（备份账号，仅 SELECT）导入会报 **ERROR 1142**。
+> 1. 必须用 `app.cnf`（应用账号：仅 **DML，无 DDL/DROP**）；`bak.cnf`（备份账号，仅 SELECT）导入会报 **ERROR 1142**；不要用 `mig.cnf`（带 DDL，不该暴露给高频导入）。
+>    权限边界：即便转义有 bug 或 `.sql` 被手工改过，最坏情况也只是"插入脏数据（可回滚、可被校验发现）"，不会变成删库。
 > 2. **必须先 `> out.sql` 再导入，不能直接管道** —— 校验是"中途失败"语义（`exit 4` 且不写 `COMMIT`），管道会把已生成的部分灌进库里。
 > 3. **stderr 必须单独留存**（上面的 `2> /import/import_err.log`），QA 校验项断言其"0 字节"；不要把 stderr 合并进 stdout 丢失。
 
@@ -190,7 +198,7 @@ docker exec -i smart-park-mysql sh -c \
 ```bash
 # crontab：每月 1 日 04:00（备份每日 02:30 起，1.5GB dump 常超 30 分钟，排 03:00 会重叠）
 #          脚本内另有 mysqldump 进程守卫：备份仍在跑即中止，避免"备份文件已存在≠备份已结束"
-0 3 1 * * /opt/smart-park/scripts/archive.sh >> /opt/smart-park/logs/archive.log 2>&1
+0 4 1 * * /opt/smart-park/scripts/archive.sh >> /opt/smart-park/logs/archive.log 2>&1
 
 # 结果：logs/archive.log 记录每张表的搬运行数/批数/残留行数；
 #       异常时写入 logs/alerts.log（P1）——归档失败是静默的，必须留痕并被巡检捕获
@@ -229,6 +237,8 @@ docker exec -i smart-park-mysql sh -c \
       - 口径说明：若只数业务表则为 **11**（9 主表 + 2 归档表），加上 Flyway 自建的 `flyway_schema_history` 为 **12**。检查单以 **12** 为准，不要拿 11 去对 `information_schema` 结果。
       - `SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA=DATABASE() AND CONSTRAINT_TYPE='CHECK';` → 期望 **20**；**返回 0 说明 MySQL < 8.0.16，CHECK 被静默忽略，必须停上线先升 MySQL**
       - `SELECT installed_rank, version, success FROM flyway_schema_history;` → 期望 1 行且 `success=1`
+- [ ] **Flyway 执行账号验证**（首次部署必验）：迁移日志显示的用户必须是 `smartpark_mig`（Flyway 走独立数据源）；
+      反向验证：用 `smartpark_app` 执行一条 `CREATE TABLE` 应报 **1142**（证明运行时账号无 DDL）
 - [ ] 首次备份手工触发一次并验证可恢复
 
 **上线后**

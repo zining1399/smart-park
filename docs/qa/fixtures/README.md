@@ -5,7 +5,7 @@
 | 文件 | 内容 | 对应用例 | 行数 | 展开断言实例 |
 |---|---|---|---|---|
 | `auth-matrix.csv` | 42 个接口 × 3 角色 + 未登录 | TC-AUTH-01/03/04/05 | 42 | **168**（42×4） |
-| `enum-constraints.csv` | 18 条 CHECK 约束的正/负向断言 | TC-ENUM-01 | 18 | **36**（18×2，其中 `chk_perm_time_range` 标记「暂缓」） |
+| `enum-constraints.csv` | 20 条 CHECK 约束的正/负向断言 | TC-ENUM-01 / 04 / 05 | 20 | **40**（20×2） |
 | `enum-api-validation.csv` | 12 个字段 × 5 类非法值的 API 层断言 | TC-ENUM-02 | 12 | **60**（12×5） |
 | **合计** | | | **72** | **264** |
 
