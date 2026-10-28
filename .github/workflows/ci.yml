@@ -76,9 +76,11 @@ jobs:
       # 在本地没有 docker 的情况下这是唯一能提前挡住的手段
       - name: 运维脚本语法检查（bash -n）
         run: |
+          set -x
           for f in scripts/*.sh mysql/init/*.sh; do
             bash -n "$f" && echo "ok: $f"
           done
+          echo "bash -n loop done, last rc=$?"
 
   # ---------------------------------------------------------------- 后端
   backend:
@@ -91,6 +93,13 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven                     # Maven 依赖缓存
+      # 诊断：确认 runner 上 Docker 真的可用（Testcontainers disabledWithoutDocker 会整类跳过）
+      - name: Docker 环境诊断
+        run: |
+          docker --version
+          docker info 2>&1 | head -20
+          echo "DOCKER_HOST=${DOCKER_HOST:-<unset>}"
+          ls -la /var/run/docker.sock
       - name: 编译 + 单元测试
         working-directory: smart-park-backend
         run: mvn -B clean verify
