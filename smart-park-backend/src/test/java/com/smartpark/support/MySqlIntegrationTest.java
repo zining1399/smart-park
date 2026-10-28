@@ -94,6 +94,8 @@ public abstract class MySqlIntegrationTest {
     @BeforeEach
     void seedUsersOnce() {
         if (SEEDED.compareAndSet(false, true)) {
+            // 清掉 AdminInitializer 建的账号（随机密码），用测试统一密码重建
+            jdbcTemplate.update("DELETE FROM sys_user");
             insertUser("admin", "系统管理员", "ADMIN");
             insertUser("gate", "门岗值班", "GATE");
             insertUser("store", "仓库管理员", "STORE");
