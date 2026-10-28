@@ -29,9 +29,8 @@ jobs:
       - name: csv-to-inserts.py 自检
         run: |
           set -u
-          cd scripts
+          S="$GITHUB_WORKSPACE/scripts/csv-to-inserts.py"
           mkdir -p /tmp/t && cd /tmp/t
-          S=../../scripts/csv-to-inserts.py
           COLS='emp_no,name,dept,phone,status'
 
           print_result(){ echo "$1"; }
