@@ -21,6 +21,10 @@
         <java.version>17</java.version>
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <!-- Spring Boot 3.2.12 管的是 1.19.x，与 GitHub runner 的 Docker 29 不兼容，
+             Testcontainers 检测不到 Docker 导致集成类全被 disabledWithoutDocker 跳过。
+             1.20.x 的 docker-java 支持新版 Docker。 -->
+        <testcontainers.version>1.20.6</testcontainers.version>
     </properties>
 
     <dependencies>
