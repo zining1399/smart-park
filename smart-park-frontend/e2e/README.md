@@ -45,6 +45,7 @@ e2e/
 | TC-FE-22a | tests/16-sensitive-mask-contract.spec.js | **敏感字段命名与形态契约**：出参恒为驼峰 `idCardMask`/`phoneMask`，无下划线写法，密文/哈希不下发 |
 | TC-FE-22b | tests/16-sensitive-mask-contract.spec.js | 禁用账号登录报 40103 且停留登录页（需 `E2E_USER_DISABLED`，否则 skip） |
 | TC-FE-22c | tests/16-sensitive-mask-contract.spec.js | 业务请求上的 40103 必须踢回登录页（防"页面在、数据永远刷不出"的僵死态） |
+| TC-FE-22d | tests/16-sensitive-mask-contract.spec.js | `/auth/refresh` 自身返 40103 时也必须踢登录，且 `sp_token`/`sp_refresh` 双清（防刷新死循环） |
 
 > 附：01-auth.spec.js 中 TC-FE-14b（XSS 防御）为 TC-FE-14 的分支用例，不单独计数。
 >
@@ -102,9 +103,7 @@ npm run test:compat
 
 1. `tests/01-auth.spec.js` 中依赖登录页的三条（TC-FE-01/02/13）在 `E2E_LOGIN_UI=1` 且后端 `/auth/*` 就位后才可执行，否则 **skip**。
 2. ~~**TC-FE-15 当前预期为 FAIL**~~ 已修复：`src/views/StockRecord.vue` 的 `RETURN` 选项已按裁决 15 移除，`typeText` 兜底改为 `-`，TC-FE-15 转为 PASS。
-3. **当前预期 FAIL 的哨兵用例**：TC-FE-22c（业务请求 40103 不踢登录）。前端 `request.js` 把 40103 与 40102 一并当作"仅登录页会出现"处理 → 业务请求上只提示不跳转。修法二选一待 team-lead 裁决：
-   - (a) 前端改：401 且 code=40103 且当前不在登录页 → 踢登录并提示含「禁用」（保留精确语义）；
-   - (b) 后端改：`JwtAuthFilter` 对禁用账号返回 40101，前端现有分支直接接管（前端零改动，但丢失"被禁用 vs 已过期"的区分度）。
+3. ~~**TC-FE-22c 当前预期为 FAIL**~~ 已修复：采纳修法 (a)——前端 `request.js` 对业务请求上的 40103 踢回登录并提示含「禁用」（`commit eff1e9f`）；同批补的 **TC-FE-22d** 钉住 refresh 自身返 40103 时也必须踢登录且双清 `sp_token`/`sp_refresh`。两条均转回归哨兵，改回"只提示不跳转"即 FAIL。
 
 ## 写用例时的三个坑（都是踩出来的）
 

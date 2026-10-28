@@ -1,16 +1,17 @@
 # 智慧园区管理系统 · 测试用例执行规格
 
 本文档是 `docs/api-contract.md`（契约）的下游产物：**契约说接口长什么样，本文档说怎么验它是对的**。
-共 **118 条**用例，按模块组织；每条给出「前置条件 / 步骤 / 断言点 / 期望错误码」，可直接照着实施。
+共 **119 条**用例，按模块组织；每条给出「前置条件 / 步骤 / 断言点 / 期望错误码」，可直接照着实施。
 
 > **关于条目数的计数口径（请对照阅读，勿误解为覆盖率缩水）**
-> - **118 = 本清单的用例条目数**（一份用例 = 一条业务路径），逐条可核（见 §13）。
-> - 对外汇报的 **107 条** 是同一份清单的另一种口径：118 − 5（FE-16~20 前端 M3 新增，旧稿未含）− 3（FE-22a/b/c 契约类）− 2（ENUM-03a/03b 合并计 1）− 1（AUD-01 未落地不计数）= **107**。
+> - **119 = 本清单的用例条目数**（一份用例 = 一条业务路径），逐条可核（见 §13）。
+> - 对外汇报的 **108 条** 是同一份清单的另一种口径：119 − 5（FE-16~20 前端 M3 新增，旧稿未含）− 4（FE-22a/b/c/d 契约类）− 2（ENUM-03a/03b 合并计 1）= **108**。
+>   （原口径里再减 1 的「AUD-01 未落地不计数」已作废：`AuditLogger` 已落地、`AuditLogTest` 已启用，审计用例是真实执行量，不再作减法。）
 >   **这两个数不矛盾，是同一份文档的两套数法**，引用时注明口径即可（本清单取 118，因为新增的前端用例是真要跑的）。
 > - 按参数化展开后，**实际执行断言实例 268 个**：鉴权矩阵 168（42 接口 × 4 种身份）、CHECK 约束矩阵 40（20 条 × 正向/负向）、API 枚举校验 60（12 字段 × 5 类非法值）；
 > - 另有 **4 条口径登记项不参与参数化展开**（`material.status` 忽略语义、`visitor.area` 空值、PUT 路径已移除的 code / empNo / plateNo 三字段），它们的作用是防误判，不是新增断言量；
 > - 并发 4 条（TC-STK-11/22/23/24）另按 **10 并发 × 20 轮 = 800 次请求**执行；
-> - 参数化数据源见 `docs/qa/fixtures/`（三份 CSV，74 行展开为 268 个实例）。
+> - 参数化数据源见 `docs/qa/fixtures/`（三份 CSV，78 行展开为 268 个实例）。
 
 | 项 | 说明 |
 |---|---|
@@ -113,7 +114,7 @@
 | TC-AUTH-09 | P0 | A+E | 有访客数据 | ① GET /api/visitors 取列表；② 抓包检查响应体原文 | ① idCard 匹配 `^\d{6}\*{4,}\d{4}$`（前 6 后 4 中间打码）；② 响应体原文**不含 18 位明文身份证**；③ 数据库 `id_card` 列为**密文**（裁决 17：cipher 列），不得出现明文 18 位 |
 | TC-AUTH-10 | P0 | A | 有访客数据 | GET /api/visitors/{id}、PUT /api/visitors/{id} 响应体逐个检查 | 同上脱敏 + 库内密文；**逐个接口验证，防单接口漏脱敏** |
 | TC-AUTH-11 | P1 | D | 日志文件 | 全局检索 18 位身份证号、明文密码 | 无命中（身份证加密三列落地后，日志中亦不得出现明文） |
-| **TC-AUTH-12** | P0 | A | admin 已登录取得 token | ① 用 token 访问 /api/auth/me（code=0）；② `UPDATE sys_user SET status='禁用'`；③ **用同一个未过期 token** 再访问；④ 用该账号重新登录；⑤ 改回「启用」后原 token 再访问 | ③ **40103**（不是放行）；④ 40103；⑤ 恢复 0。覆盖"无状态 JWT 无法即时吊销"的解法：filter 每次请求查库且带 `status='启用'` 条件，**无需黑名单表**。⏳ backend 修复前本用例 FAIL（缺陷信号，不得改对） |
+| **TC-AUTH-12** | P0 | A | admin 已登录取得 token | ① 用 token 访问 /api/auth/me（code=0）；② `UPDATE sys_user SET status='禁用'`；③ **用同一个未过期 token** 再访问；④ 用该账号重新登录；⑤ 改回「启用」后原 token 再访问 | ③ **40103**（不是放行）；④ 40103；⑤ 恢复 0。覆盖"无状态 JWT 无法即时吊销"的解法：`JwtAuthFilter` 每次请求 `findEnabledByUsername` 查库、禁用即 40103，**无需黑名单表**。✅ **已落地**（`AccountStatusTest` 3 条钉住：禁用即拒 / 禁用不能再登 / 复启恢复），保留作**回归哨兵**；测试属 A 载体，需 Docker 环境真跑，本机跳过 ≠ 通过 |
 | **TC-AUTH-13** | P0 | A+D | 已有账号 `admin` | ① 插入 `ADMIN`（不同大小写）；② 用 `Admin` 登录；③（待有用户管理接口后）API 创建同名账号 | ① **ERROR 1062** 且消息含 `uk_sys_user_username`（不是 3819——两者不可混写）；② **登录成功**（ci 是刻意选择，正向钉住）；③ 返回 **40901「登录名已存在」**，**不得冒泡 50001**。⏳ ③ 依赖用户管理接口，当前 42 接口中不含，暂挂起 |
 
 ---
@@ -394,12 +395,13 @@ WHERE m.status <> '在借' AND r.approve_status IN ('免审','已批准') AND r.
 | **TC-FE-20** | P1 | E | token 过期后并发触发多个请求（网络面板计数） | ① 网络面板**只见 1 次 `/auth/refresh`**（单飞），原请求各重放 1 次；② refresh 也过期时**一次性踢回登录**，**不循环刷新**（出现 2 次以上 refresh = 死循环缺陷） |
 | **TC-FE-22a** | P0 | E | 列表接口出参字段形态 | 出参恒为**驼峰** `idCardMask` / `phoneMask`；**不得**出现 `id_card` / `phone_mask` / `idCard_mask` 等下划线写法；`idCard` / `phone` 被掩码覆盖（**不得下发密文**）；`idCardHash` / `phoneHash` 恒为 null（**哈希不外泄**）。由 frontend 维护（`tests/16-sensitive-mask-contract.spec.js`）。⛔ 不要为转绿而放宽 |
 | **TC-FE-22b** | P1 | E | 用禁用账号登录 | 40103 + 停留在登录页**不跳转** |
-| **TC-FE-22c** | P1 | E | 已登录用户，其账号被禁用后访问业务接口（`JwtAuthFilter` 返回 **40103**） | **必须踢回 /login** + 提示含「禁用」+ 凭证清空。⚠️ **当前预期 FAIL**：前端 `request.js` 把 40103 与 40102 一并当作"仅登录页会出现"处理，业务请求上只提示不跳转 → 用户停在原页面、数据永远刷不出来的**僵死态**。修法二选一待裁决：(a) 前端按 40103 踢登录；(b) 后端 filter 改返 40101 |
+| **TC-FE-22c** | P1 | E | 已登录用户，其账号被禁用后访问业务接口（`JwtAuthFilter` 返回 **40103**） | **必须踢回 /login** + 提示含「禁用」+ `sp_token`/`sp_refresh` 凭证清空。✅ **已落地转 PASS**：采纳修法 (a)——前端 `request.js` 按出现位置分流，`/auth/login` 上只提示不跳转（跳转丢 `redirect` 参数），业务请求上 `redirectToLogin(msg)`（`commit eff1e9f`）；同批补上 `/auth/refresh` 自身返 40103 的分支，消灭"刷新成功 → 业务请求 40103 → 再刷新"死循环。由 frontend 维护（`tests/16-sensitive-mask-contract.spec.js`），保留作**回归哨兵**：改回"只提示不跳转"即 FAIL |
+| **TC-FE-22d** | P1 | E | 已登录用户 token 过期触发 `/auth/refresh`，但该账号已被禁用（refresh token 尚未过期）→ refresh 自身返回 **40103** | ① 必须踢回 `/login`（**不得**只提示、不得重试业务请求）；② 提示含「禁用」；③ `sp_token` **与** `sp_refresh` **两个凭证都清空**（只清 access 不清 refresh 会再次进入刷新死循环）。由 frontend 维护（`tests/16-sensitive-mask-contract.spec.js`，用 route 模拟 refresh 返 40103）。✅ 已随 22c 同批落地，回归哨兵 |
 
 > 兼容性（原 TC-FE-11 独立用例）由 Playwright **三浏览器矩阵**（chromium/firefox/webkit × 1366×768）承载，不单独占用例条目。
 >
 > **工程分工（同一条断言只准出现在一个文件里）**：
-> `16-sensitive-mask-contract.spec.js`（frontend 维护）= 出参形态 + 账号禁用（22a/22b/22c）；
+> `16-sensitive-mask-contract.spec.js`（frontend 维护）= 出参形态 + 账号禁用（22a/22b/22c/22d）；
 > `13-auth-session.spec.js`（qa 维护）= 菜单/按钮/越权/404（17/18）+ 单飞 refresh（20）；
 > `11`（16 登录重定向）、`12`（19 身份证编辑）各自单文件。
 > 教训：这一节曾把 40103 / 单飞 refresh / 越权 / 菜单四类断言集中在一个文件里，后来被当成"与 qa 用例重复"整体删掉，
@@ -421,7 +423,7 @@ WHERE m.status <> '在借' AND r.approve_status IN ('免审','已批准') AND r.
 | TC-SEC-01 | P0 | A | 触发未捕获异常（如传类型不符参数） | 响应体：`code=50001`、message=「系统繁忙，请稍后重试」、**含 traceId**；**不得**含表名/字段名/SQL 片段/堆栈。详情按 traceId 在服务端日志可查 |
 | TC-SEC-02 | P0 | D | 直连数据库查访客表 | `id_card` 列为**密文**（裁决 17：cipher + hash + mask 三列）；**不得出现明文 18 位身份证**；手机号同理。命中即 No-Go |
 | **TC-SEC-03** | P0 | D | 静态扫描全仓脚本与代码：`*.sql`、`*.sh`、`*.py`、`docs/ops/*` | **不得出现任何加解密实现**（如 `AES_ENCRYPT`/`AES_DECRYPT`、openssl 命令行、pycryptodome/JCE 调用、硬编码密钥字符串）。密钥一旦落进脚本与 shell history 即泄露。命中即 **Blocker**（红线裁定）。加解密只允许经 backend 的 CryptoService 在应用内完成 |
-| **TC-AUD-01** | P1 | A | 执行登录、审批、模拟通行（放行拒绝）三类关键操作 | 读取本次响应的 traceId，捕获全部日志事件 | 每类操作必须产生**一条 INFO 级、内容含该 traceId** 的审计日志（可实现方式见 `src/test/java/com/smartpark/security/AuditLogTest.java`，logback 内存 Appender 捕获）。⏳ backend 审计日志落地前保持 @Disabled，落地后启用 |
+| **TC-AUD-01** | P1 | A | 执行登录、审批、模拟通行（放行拒绝）三类关键操作；读取本次响应的 traceId，用 logback 内存 Appender 捕获日志事件 | 每类操作必须产生**一条 INFO 级、`loggerName=AUDIT`、内容含该 traceId** 的审计日志。✅ **已落地并启用自动化**（`AuditLogger` + `AuditLogTest`，格式 `AUDIT \| traceId= \| operator= \| action= \| target= \| result= \| detail=`）。⚠️ 两个实现约束：① Appender 必须挂 **ROOT**——审计 logger 名是 `AUDIT`，不在 `com.smartpark` 子树上，挂 `com.smartpark` 收不到（假失败）；② 断言必须把 `loggerName` 作硬条件——只挂 ROOT 时请求日志等其它 INFO 也带 traceId，只断言"存在含 traceId 的 INFO"会**假通过**。当前自动化覆盖 `action=LOGIN`，`ACCESS_SIMULATE`/`APPROVE`/`STOCK_*`/`DELETE_*` 由 UAT 日志检索（D 载体）覆盖 |
 
 ---
 
@@ -455,33 +457,32 @@ WHERE m.status <> '在借' AND r.approve_status IN ('免审','已批准') AND r.
 | 7 告警看板 | ALM-01~02、DASH-01~03 | 5 |
 | 8 迁移割接 | MIG-01~13（含 1 条留存期待定占位） | 13 |
 | 9 枚举 | ENUM-01、02、03a、03b、04、05 | 6 |
-| 10 前端 E2E | FE-01~20、FE-22a/22b/22c | 23 |
+| 10 前端 E2E | FE-01~20、FE-22a/22b/22c/22d | 24 |
 | 11 安全与审计 | SEC-01~03、AUD-01 | 4 |
-| **合计** | | **118** |
+| **合计** | | **119** |
 
-> 对外汇报 107 条 = 118 − 5（FE-16~20 前端 M3 新增，未纳入旧稿）− 3（FE-22a/b/c 契约类）− 2（ENUM-03a/03b 合并计 1）− 1（AUD-01 未落地不计数）。**口径不同，清单同一份**，引用时注明即可。
+> 对外汇报 108 条 = 119 − 5（FE-16~20 前端 M3 新增，未纳入旧稿）− 4（FE-22a/b/c/d 契约类）− 2（ENUM-03a/03b 合并计 1）。**口径不同，清单同一份**，引用时注明即可（AUD-01 已落地，不再从总数里扣）。
 
 | 执行载体（按主载体计） | 条数 |
 |---|---|
 | A（后端服务器集成测试） | 81 |
-| E（Playwright） | 23 |
+| E（Playwright） | 24 |
 | M（人工割接） | 8 |
 | D（数据脚本） | 6 |
-| **合计** | **118** |
+| **合计** | **119** |
 
 | 执行环境（见 §0.5） | 条数 | 说明 |
 |---|---|---|
 | 🐳 **必须 CI / 现场执行**（本机无 docker 跑不了） | **81**（全部 A 载体） | Testcontainers 拉起 `mysql:8.0`。本机执行会因 `disabledWithoutDocker=true` **自动跳过**——跳过 ≠ 通过，CI 上容器拉取失败也要记**环境失败**而非 PASS |
-| 🖥️ 本机可执行 | 25（§10 全 23 条 + TC-SEC-02 + TC-SEC-03） | 前端需在 5173 起服务；TC-SEC-03 纯静态扫描，本机随时可跑 |
+| 🖥️ 本机可执行 | 26（§10 全 24 条 + TC-SEC-02 + TC-SEC-03） | 前端需在 5173 起服务；TC-SEC-03 纯静态扫描，本机随时可跑 |
 | 👷 必须现场 / 割接窗口执行 | 12（§1 SMOKE-01、§6 SCH-07/08、§8 全部 M/D 载体） | 依赖生产环境与真实管道，CI 不可替代 |
 
 **当前被 ⏳ 阻塞、不得强行转绿的用例**：
-- TC-AUTH-12（禁用账号即时失效）：⏳ 等 backend 修 P0，修复前 **FAIL 是有效缺陷信号**；
-- TC-FE-22c（禁用账号在**业务请求**上被拒 40103 后不踢登录）：⏳ 与 TC-AUTH-12 是同一条链路的两端，等裁决后修，修法 (a) 前端改 / (b) 后端改返 40101 二选一；
-- TC-AUD-01（审计日志）：⏳ backend 审计日志落地前，对应测试保持 `@Disabled`；
 - TC-AUTH-13 第③步、TC-ENUM-02 的 `visitor.area` 空值：⏳ 分别等用户管理接口与 `@NotBlank`。
 
-**当前预期 FAIL、且不得为转绿而放宽的哨兵用例**：TC-STK-11/22/23/24（并发无锁）、TC-ENUM-02 的 `visitor.area` 空值、TC-FE-22c、TC-AUTH-12。
+**已解冻（缺陷修复落地，转回归哨兵，不得反向改回）**：TC-FE-22c（前端 40103 业务请求踢登录，见 §10）、TC-FE-22d（refresh 自身 40103 也踢登录并双清凭证，见 §10）、TC-AUTH-12（禁用账号即时失效，`JwtAuthFilter` 每请求查库 + `AccountStatusTest` 3 条，见 §2）、TC-AUD-01（`AuditLogger` 已落地、`AuditLogTest` 已启用，见 §11）。
+
+**当前预期 FAIL、且不得为转绿而放宽的哨兵用例**：TC-STK-11/22/23/24（并发无锁）、TC-ENUM-02 的 `visitor.area` 空值。
 
 **必须等 devops 管道完成才能执行的用例**：TC-MIG-02/08/12（现已具备，管道已改造）。
 
