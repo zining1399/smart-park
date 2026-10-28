@@ -253,6 +253,13 @@ jobs:
         env:
           BASE_DIR: ${{ github.workspace }}
         run: bash scripts/smoke.sh
+      - name: 失败诊断：打印容器日志
+        if: always()
+        run: |
+          echo "===== backend 日志 ====="
+          docker compose logs backend 2>&1 | tail -80
+          echo "===== mysql 日志（最后20行）====="
+          docker compose logs mysql 2>&1 | tail -20
       - name: 收尾下线（runner 一次性，销毁不影响任何真实数据）
         if: always()
         run: docker compose --env-file .env down -v || true
