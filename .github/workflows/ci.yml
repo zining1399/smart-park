@@ -87,8 +87,9 @@ jobs:
     name: 后端构建与测试
     runs-on: ubuntu-latest
     env:
-      # Testcontainers 1.19.x 在 Docker 29 上不自动探测 socket，需显式指定
+      # Testcontainers 1.20.x 的 docker-java 默认 API 1.32，Docker 29 要求最低 1.40
       DOCKER_HOST: unix:///var/run/docker.sock
+      DOCKER_API_VERSION: "1.43"
       TESTCONTAINERS_RYUK_DISABLED: "true"
     steps:
       - uses: actions/checkout@v4
