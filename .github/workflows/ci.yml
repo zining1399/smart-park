@@ -248,6 +248,9 @@ jobs:
             echo "SMARTPARK_CRYPTO_HMAC_KEY=$(openssl rand -base64 32)"
           } >> .env
           chmod 600 .env
+          # 容器以非 root 用户运行，宿主机挂载目录必须可写，否则 logback 写 /app/logs 失败
+          mkdir -p logs/backend
+          chmod 777 logs/backend
           bash scripts/init-secrets.sh
       - name: 冒烟断言（scripts/smoke.sh）
         env:
