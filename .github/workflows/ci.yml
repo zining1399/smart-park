@@ -209,7 +209,8 @@ jobs:
         run: |
           IMG=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:${{ steps.meta.outputs.version }}
           docker pull "$IMG"
-          docker run --rm "$IMG" which curl
+          # --entrypoint 绕过 Spring Boot 启动（无 MySQL 会直接 exit 1），只验证 curl 在不在
+          docker run --rm --entrypoint which "$IMG" curl
           echo "✅ 镜像内含 curl，healthcheck 可用"
 
   # ------------------------------------------------- 真实容器冒烟（补齐静态校验盲区）
