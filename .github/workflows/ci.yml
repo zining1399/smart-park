@@ -86,6 +86,10 @@ jobs:
   backend:
     name: 后端构建与测试
     runs-on: ubuntu-latest
+    env:
+      # Testcontainers 1.19.x 在 Docker 29 上不自动探测 socket，需显式指定
+      DOCKER_HOST: unix:///var/run/docker.sock
+      TESTCONTAINERS_RYUK_DISABLED: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
