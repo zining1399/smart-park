@@ -1,6 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import { OfficeBuilding, Odometer, Lock, UserFilled, Box, Bell, Monitor, User, ArrowDown } from '@element-plus/icons-vue'
+import { OfficeBuilding, Odometer, Lock, UserFilled, Box, Bell, User, ArrowDown } from '@element-plus/icons-vue'
 
 import App from './App.vue'
 import router from './router'
@@ -16,7 +16,7 @@ const app = createApp(App)
 registerElementPlus(app)
 
 // 按需注册图标：旧版全量注册约 300 个图标组件是主包体积的来源之一
-const icons = { OfficeBuilding, Odometer, Lock, UserFilled, Box, Bell, Monitor, User, ArrowDown }
+const icons = { OfficeBuilding, Odometer, Lock, UserFilled, Box, Bell, User, ArrowDown }
 Object.entries(icons).forEach(([name, component]) => app.component(name, component))
 
 // 按钮级角色权限指令 v-permission="['ADMIN']"

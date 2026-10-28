@@ -310,9 +310,12 @@ CREATE TABLE sys_user (
 --   （例如新增枚举值后又删掉）时，归档作业会被归档表自己的约束拒绝，导致静默归档失败。
 --   归档作业脚本见 docs/ops/archive.sql。
 --
---   异常处理：若执行报 ERROR 3911 (constraint does not exist)，说明该版本
---   CREATE TABLE ... LIKE 未继承 CHECK，直接删掉对应的 ALTER ... DROP CHECK 行即可，
---   归档表本就不需要 CHECK。
+--   注意：MySQL 8.0 的 CREATE TABLE ... LIKE **会**继承 CHECK，但约束名自动改写为
+--   `<表名>_chk_<序号>`（按主表定义顺序）。用主表原名 DROP 会报
+--   ERROR 3821 "Check constraint ... is not found in the table."——这只代表名字不对，
+--   不代表归档表没有约束；切勿据此删掉下面的 DROP CHECK 行：删了全库 CHECK 会变成 25 条，
+--   scripts/smoke.sh ④ 与 docs/reviews/03-data-review.md 的「20 条逐字清单」当场对不上，
+--   且本节的归档解耦裁决失效。
 -- =============================================================================
 CREATE TABLE access_record_archive LIKE access_record;
 -- 注：MySQL 8.0 的 CREATE TABLE ... LIKE **会**继承 CHECK，但约束名被自动改写为
