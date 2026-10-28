@@ -67,7 +67,8 @@ class AuthMatrixTest extends MySqlIntegrationTest {
 
     private MvcResult perform(QaFixtures.AuthCase c, String identity) throws Exception {
         String token = "anon".equals(identity) ? null : tokenOf(identity);
-        String path = c.path().replace("{id}", ID);
+        // CSV 路径带 /api 前缀（文档口径），MockMvc 不需要 context-path 前缀（同 login 用 /auth/login）
+        String path = c.path().replace("{id}", ID).replaceFirst("^/api", "");
 
         if ("/api/auth/refresh".equals(c.path())) {
             // 刷新接口免鉴权，但需要合法的 refreshToken：先用 admin 登录取一对令牌
