@@ -15,8 +15,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Map;
 import java.util.UUID;
@@ -31,10 +29,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  *   MySQL → Flyway V1 自动建表 → 播种三个角色账号 → MockMvc 调用。
  *
  * 两种数据源：
- *  - CI（SPRING_DATASOURCE_URL 已注入）：直接连 GitHub service container 的 MySQL，不启动 Testcontainers；
+ *  - CI（SPRING_DATASOURCE_URL 已注入）：直接连 GitHub service container 的 MySQL；
  *  - 本地（未注入）：启动 Testcontainers 的 MySQL 8 容器。
  */
-@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK, properties = {
         "spring.profiles.active=test",
         "smartpark.security.jwt-secret=test-jwt-secret-0123456789abcdef0123456789abcdef",
@@ -52,15 +49,21 @@ public abstract class MySqlIntegrationTest {
     /** CI 模式：外部 MySQL（GitHub service container）已注入 SPRING_DATASOURCE_URL */
     private static final boolean EXTERNAL_DB = System.getenv("SPRING_DATASOURCE_URL") != null;
 
-    /** 本地模式：Testcontainers 启动 MySQL 8；CI 模式下不启动 */
-    @Container
-    static final MySQLContainer<?> MYSQL = EXTERNAL_DB ? null :
-            new MySQLContainer<>("mysql:8.0")
+    /** 本地模式：Testcontainers MySQL 8；CI 模式为 null */
+    private static final MySQLContainer<?> MYSQL;
+    static {
+        if (EXTERNAL_DB) {
+            MYSQL = null;
+        } else {
+            MYSQL = new MySQLContainer<>("mysql:8.0")
                     .withDatabaseName("smart_park")
                     .withUsername("test")
                     .withPassword("test")
                     .withCommand("--default-time-zone=+08:00", "--character-set-server=utf8mb4",
                             "--collation-server=utf8mb4_0900_ai_ci");
+            MYSQL.start();
+        }
+    }
 
     private static final AtomicBoolean SEEDED = new AtomicBoolean(false);
     private static final Map<String, String> TOKEN_CACHE = new ConcurrentHashMap<>();
