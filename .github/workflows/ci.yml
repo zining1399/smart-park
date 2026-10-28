@@ -246,9 +246,9 @@ jobs:
             echo "SMARTPARK_JWT_SECRET=$(openssl rand -base64 48)"
           } >> .env
           chmod 600 .env
-          ./scripts/init-secrets.sh
+          bash scripts/init-secrets.sh
       - name: 冒烟断言（scripts/smoke.sh）
-        run: ./scripts/smoke.sh
+        run: bash scripts/smoke.sh
       - name: 收尾下线（runner 一次性，销毁不影响任何真实数据）
         if: always()
         run: docker compose --env-file .env down -v || true
