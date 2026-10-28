@@ -315,16 +315,19 @@ CREATE TABLE sys_user (
 --   归档表本就不需要 CHECK。
 -- =============================================================================
 CREATE TABLE access_record_archive LIKE access_record;
+-- 注：MySQL 8.0 的 CREATE TABLE ... LIKE **会**继承 CHECK，但约束名被自动改写为
+-- `<table>_chk_<n>`（按主表 CHECK 定义顺序），不能再用原名 chk_ar_pass_type 等 DROP。
+-- 归档表存历史数据，主表将来收紧枚举时归档作业不能被自己的旧约束拒掉，故全部 drop。
 ALTER TABLE access_record_archive
-    DROP CHECK chk_ar_pass_type,
-    DROP CHECK chk_ar_direction,
-    DROP CHECK chk_ar_result;
+    DROP CHECK access_record_archive_chk_1,
+    DROP CHECK access_record_archive_chk_2,
+    DROP CHECK access_record_archive_chk_3;
 ALTER TABLE access_record_archive ROW_FORMAT=COMPRESSED;
 
 CREATE TABLE stock_record_archive LIKE stock_record;
 ALTER TABLE stock_record_archive
-    DROP CHECK chk_sr_type,
-    DROP CHECK chk_sr_approve_status;
+    DROP CHECK stock_record_archive_chk_1,
+    DROP CHECK stock_record_archive_chk_2;
 ALTER TABLE stock_record_archive ROW_FORMAT=COMPRESSED;
 
 -- =============================================================================

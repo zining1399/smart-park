@@ -1,28 +1,27 @@
-# 开发/本地环境：H2 内存数据库（免装 MySQL，启动即建表 + 演示数据）
+# 开发/本地环境：MySQL 8 本地实例（H2 已降为 test scope，仅测试使用）
 spring:
   datasource:
-    driver-class-name: org.h2.Driver
-    url: jdbc:h2:mem:smart-park;DB_CLOSE_DELAY=-1;MODE=MySQL;DB_CLOSE_ON_EXIT=FALSE
-    username: sa
-    password:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 不使用 characterEncoding=utf8（utf8mb3 三字节坑），改用 connectionCollation 指定 utf8mb4
+    # useServerPrepStmts=false：走文本协议，DATETIME 以 'yyyy-MM-dd HH:mm:ss' 原样返回（19 位定长）。
+    # 显式写死而非依赖默认值——一旦有人为"性能"改成 true，会切到二进制协议，
+    # DATETIME 被解码成 LocalDateTime，getString() 可能带出 .0 或 T，全库字符串比较假设即崩。
+    url: jdbc:mysql://${SMARTPARK_DB_HOST:localhost}:${SMARTPARK_DB_PORT:3306}/${SMARTPARK_DB_NAME:smart_park}?connectionCollation=utf8mb4_0900_ai_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&useServerPrepStmts=false
+    username: ${SPRING_DATASOURCE_USERNAME:smart_park}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
     hikari:
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 30000
-  # 开发环境关掉 Flyway（Flyway 脚本是 MySQL 语法，H2 不兼容）
   flyway:
-    enabled: false
-  # 启动时自动执行 schema.sql 建表 + data.sql 演示数据
+    enabled: true
+    clean-disabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+  # dev 侧允许保留演示脚本（不自动加载，需手工执行）；生产永不加载
   sql:
     init:
-      mode: always
-      schema-locations: classpath:schema.sql
-      data-locations: classpath:data.sql
-  # H2 控制台：http://localhost:8080/api/h2-console
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
+      mode: never
 
 # dev 兜底：未注入 env 时使用本地开发密钥（生产 profile 不含任何默认值，缺失即 fail-fast）
 smartpark:

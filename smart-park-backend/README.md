@@ -15,8 +15,8 @@ Java 17 · Spring Boot 3.2 · MyBatis-Plus 3.5 · **MySQL 8.0（≥ 8.0.16）** 
    枚举校验会全部失效且无任何报错，是最难排查的一类事故。
 2. 建库：`CREATE DATABASE smart_park DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_0900_ai_ci;`
 3. **表结构只由 Flyway 维护**（`src/main/resources/db/migration/V1__init.sql`）。
-   `schema.sql` / `data.sql` 已被 `spring.sql.init.mode: never` 禁用，**永不自动加载**——
-   这是原「重启即清库」事故的根因修复，任何人不得改回 `always`。
+   旧的 `schema.sql` / `data.sql`（H2 方言、开头即 `DROP TABLE`）已删除——
+   原「重启即清库」事故的根因已随文件一起移除，不再靠 `sql.init.mode` 兜底。
 4. 默认激活 `dev` profile，可用 `SMARTPARK_PROFILE=prod` 切换。
 
 ```bash
@@ -33,7 +33,7 @@ mvn spring-boot:run
 
 ## 鉴权
 
-- 登录：`POST /api/auth/login` → `{accessToken, refreshToken, ...}`；`POST /api/auth/refresh` 免鉴权（否则双 token 链路自断）。
+- 登录：`POST /api/auth/login` → `{token, refreshToken, expiresIn, user, ...}`；`POST /api/auth/refresh` 免鉴权（否则双 token 链路自断）。
 - 三角色：`ADMIN`（管理员）/ `GATE`（门岗）/ `STORE`（仓管），权限矩阵见 `SecurityConfig`。
 - access token 2 小时、refresh token 7 天（可配，`SMARTPARK_ACCESS_TOKEN_MINUTES` / `SMARTPARK_REFRESH_TOKEN_DAYS`）。
 - **账号禁用即时生效**：`JwtAuthFilter` 每次请求都查库且带 `status='启用'` 条件，

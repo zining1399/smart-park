@@ -17,12 +17,12 @@ smart-park/
 
 | 端  | 技术                                                                           |
 | -- | ---------------------------------------------------------------------------- |
-| 后端 | Java 17 · Spring Boot 3.2 · MyBatis-Plus 3.5 · H2（内嵌，免安装数据库）· Maven · Lombok |
+| 后端 | Java 17 · Spring Boot 3.2 · MyBatis-Plus 3.5 · MySQL 8（Flyway 迁移）· Maven · Lombok |
 | 前端 | Vue 3 · Vite 5 · Element Plus · Vue Router · Pinia · Axios · ECharts（看板）     |
 
 ## 资料中未明确、本次实现采用的假设
 
-1. **数据库**：资料未指定。为便于本地一键运行，默认使用内嵌 H2（文件模式 `./data/smart-park`），表结构由 `schema.sql` 初始化、种子数据由 `data.sql` 提供；切换 MySQL 只需替换 `application.yml` 数据源与依赖。
+1. **数据库**：资料未指定。采用 **MySQL 8**，表结构由 Flyway `V1__init.sql` 版本化迁移（dev 本地与生产同库同方言，不再用 H2 兜底）；连接信息走环境变量，见下方「本地启动」。
 2. **登录鉴权**：资料中的统一身份中心属既有平台能力。本项目不实现登录，接口暂不做鉴权，前端直接进入工作台（axios 中预留 token 拦截器位置）。
 3. **设备接入**：车牌/人脸/RFID 等终端感知层不在软件交付范围内。通行流水通过「模拟通行」接口产生（等价于终端上报），门禁白名单/权限校验逻辑在服务端实现。
 4. **三维一张图**：复用已有三维模型与地图，本项目仅提供运营看板（ECharts 图表 + 统计卡片），不做三维渲染。
@@ -40,14 +40,30 @@ smart-park/
 
 ## 本地启动
 
-### 后端（需要 JDK 17+；可用 IntelliJ IDEA 直接打开运行）
+### 后端（需要 JDK 17+ 与本地 MySQL 8）
+
+先在 MySQL 8 里建库与开发账号（只需一次）：
+
+```sql
+CREATE DATABASE smart_park CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE USER 'smart_park'@'localhost' IDENTIFIED BY 'smart_park_dev';
+GRANT ALL PRIVILEGES ON smart_park.* TO 'smart_park'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+启动（Flyway 自动建表，无需手工跑 SQL；初始 admin/gate/store 账号密码打印在启动日志里）：
 
 ```bash
 cd smart-park-backend
+# Windows PowerShell：
+$env:SPRING_DATASOURCE_USERNAME='smart_park'
+$env:SPRING_DATASOURCE_PASSWORD='smart_park_dev'
 mvn spring-boot:run
 # 启动后接口前缀：http://localhost:8080/api
-# H2 控制台：http://localhost:8080/api/h2-console （JDBC URL: jdbc:h2:file:./data/smart-park）
+# 健康检查：http://localhost:8080/api/actuator/health
 ```
+
+> dev 默认 profile 即连 `localhost:3306/smart_park`；H2 已降为 test scope，仅供 Testcontainers 之外的纯单测使用，不再提供本地 Web 控制台。
 
 ### 前端（需要 Node 18+）
 
