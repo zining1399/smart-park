@@ -86,11 +86,24 @@ jobs:
   backend:
     name: 后端构建与测试
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: smart_park
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     env:
-      # Testcontainers 1.20.x 的 docker-java 默认 API 1.32，Docker 29 要求最低 1.40
-      DOCKER_HOST: unix:///var/run/docker.sock
-      DOCKER_API_VERSION: "1.43"
-      TESTCONTAINERS_RYUK_DISABLED: "true"
+      # 集成测试直连 MySQL service container（不用 Testcontainers，避免 Docker 版本兼容问题）
+      SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/smart_park?connectionCollation=utf8mb4_0900_ai_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&useServerPrepStmts=false
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -98,13 +111,6 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven                     # Maven 依赖缓存
-      # 诊断：确认 runner 上 Docker 真的可用（Testcontainers disabledWithoutDocker 会整类跳过）
-      - name: Docker 环境诊断
-        run: |
-          docker --version
-          docker info 2>&1 | head -20
-          echo "DOCKER_HOST=${DOCKER_HOST:-<unset>}"
-          ls -la /var/run/docker.sock
       - name: 编译 + 单元测试
         working-directory: smart-park-backend
         run: mvn -B clean verify

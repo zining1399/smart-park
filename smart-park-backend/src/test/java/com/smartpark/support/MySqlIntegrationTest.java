@@ -28,15 +28,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 /**
  * 集成测试基类（QA 专用）：
- *   MySQL 8 容器 → Flyway V1 自动建表 → 播种三个角色账号 → MockMvc 调用。
+ *   MySQL → Flyway V1 自动建表 → 播种三个角色账号 → MockMvc 调用。
  *
- * 设计要点：
- *  - 容器为 static，多个测试类共用同一个容器（Flyway 只跑一次，速度快）；
- *  - 无 Docker 环境时 @Testcontainers(disabledWithoutDocker = true) 自动跳过，不误报失败；
- *  - 账号播种只执行一次（容器数据跨测试类复用）；
- *  - 数据源 URL 通过 @DynamicPropertySource 注入，测试期间同时验证 Flyway 脚本可执行。
+ * 两种数据源：
+ *  - CI（SPRING_DATASOURCE_URL 已注入）：直接连 GitHub service container 的 MySQL，不启动 Testcontainers；
+ *  - 本地（未注入）：启动 Testcontainers 的 MySQL 8 容器。
  */
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK, properties = {
         "spring.profiles.active=test",
         "smartpark.security.jwt-secret=test-jwt-secret-0123456789abcdef0123456789abcdef",
@@ -51,13 +49,18 @@ public abstract class MySqlIntegrationTest {
 
     protected static final String TEST_PASSWORD = "Test@123456";
 
+    /** CI 模式：外部 MySQL（GitHub service container）已注入 SPRING_DATASOURCE_URL */
+    private static final boolean EXTERNAL_DB = System.getenv("SPRING_DATASOURCE_URL") != null;
+
+    /** 本地模式：Testcontainers 启动 MySQL 8；CI 模式下不启动 */
     @Container
-    static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
-            .withDatabaseName("smart_park")
-            .withUsername("test")
-            .withPassword("test")
-            .withCommand("--default-time-zone=+08:00", "--character-set-server=utf8mb4",
-                    "--collation-server=utf8mb4_0900_ai_ci");
+    static final MySQLContainer<?> MYSQL = EXTERNAL_DB ? null :
+            new MySQLContainer<>("mysql:8.0")
+                    .withDatabaseName("smart_park")
+                    .withUsername("test")
+                    .withPassword("test")
+                    .withCommand("--default-time-zone=+08:00", "--character-set-server=utf8mb4",
+                            "--collation-server=utf8mb4_0900_ai_ci");
 
     private static final AtomicBoolean SEEDED = new AtomicBoolean(false);
     private static final Map<String, String> TOKEN_CACHE = new ConcurrentHashMap<>();
@@ -75,6 +78,10 @@ public abstract class MySqlIntegrationTest {
 
     @DynamicPropertySource
     static void datasourceProperties(DynamicPropertyRegistry registry) {
+        if (EXTERNAL_DB) {
+            // CI 模式：SPRING_DATASOURCE_URL/USERNAME/PASSWORD 已由环境变量注入，不覆盖
+            return;
+        }
         registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);
