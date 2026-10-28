@@ -261,12 +261,12 @@ jobs:
         run: |
           echo "===== 容器状态 ====="
           docker compose ps -a
-          echo "===== compose up 重试（看报错）====="
-          docker compose --env-file .env up -d 2>&1 || true
+          echo "===== frontend healthcheck 手动测试 ====="
+          docker compose exec frontend wget -qO- http://localhost/ 2>&1 || echo "wget exit=$?"
+          docker compose exec frontend which wget 2>&1 || echo "no wget"
+          docker compose exec frontend ls -la /etc/nginx/conf.d/ 2>&1
           echo "===== backend 日志 ====="
-          docker compose logs backend 2>&1 | tail -80
-          echo "===== mysql 日志（最后20行）====="
-          docker compose logs mysql 2>&1 | tail -20
+          docker compose logs backend 2>&1 | tail -30
       - name: 收尾下线（runner 一次性，销毁不影响任何真实数据）
         if: always()
         run: docker compose --env-file .env down -v || true
