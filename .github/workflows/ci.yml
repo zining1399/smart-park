@@ -3,10 +3,12 @@ name: smart-park CI
 # 触发：主干/开发分支推送与 PR、语义化版本 tag
 on:
   push:
-    branches: [main, develop]
+    # master 是本仓唯一长期分支（origin/master），必须列入：只写 main/develop 时
+    # 本 workflow 从未被任何推送触发过，下面 6 个 job 的"绿"全部是无记录的绿
+    branches: [master, main, develop]
     tags: ['v*.*.*']
   pull_request:
-    branches: [main, develop]
+    branches: [master, main, develop]
 
 env:
   REGISTRY: ghcr.io
@@ -92,6 +94,13 @@ jobs:
       - name: 编译 + 单元测试
         working-directory: smart-park-backend
         run: mvn -B clean verify
+      # 假绿守卫：集成用例基类是 @Testcontainers(disabledWithoutDocker = true)，runner 上
+      # Docker 不可用时整类被记为 skipped 而 mvn 退出码仍为 0，"BUILD SUCCESS" 里可能一条
+      # 集成用例都没跑 —— 鉴权矩阵 168 断言、CHECK 矩阵 40 断言、审计日志、账号禁用即时生效
+      # 全在这些类里，跳过即视为未验证，本 job 必须红（2026-10-27 归档表 DROP CHECK 缺陷
+      # 就是靠这条门禁才不会被静默带到交付）。判据与逐类白名单见脚本头部注释。
+      - name: 集成用例不得被静默跳过（假绿守卫）
+        run: bash scripts/check-surefire-no-skip.sh
       - uses: actions/upload-artifact@v4
         with:
           name: backend-jar
