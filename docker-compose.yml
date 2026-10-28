@@ -116,7 +116,9 @@ services:
       backend:
         condition: service_healthy          # 首启等 Flyway 迁移完成后才放流量
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1"]
+      # 用 127.0.0.1 而非 localhost：alpine 的 localhost 优先解析 IPv6 ::1，
+      # 而 nginx listen 80 只绑 IPv4，导致 healthcheck 永远 connection refused
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12

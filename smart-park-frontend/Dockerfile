@@ -44,6 +44,6 @@ COPY --from=builder /build/dist /usr/share/nginx/html
 ENV TZ=Asia/Shanghai
 EXPOSE 80
 
-# alpine 无 curl，使用 busybox wget
+# alpine 无 curl，使用 busybox wget；用 127.0.0.1 避免 localhost 解析到 IPv6 ::1
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1
+  CMD wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1
