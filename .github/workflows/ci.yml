@@ -259,6 +259,10 @@ jobs:
       - name: 失败诊断：打印容器日志
         if: always()
         run: |
+          echo "===== 容器状态 ====="
+          docker compose ps -a
+          echo "===== compose up 重试（看报错）====="
+          docker compose --env-file .env up -d 2>&1 || true
           echo "===== backend 日志 ====="
           docker compose logs backend 2>&1 | tail -80
           echo "===== mysql 日志（最后20行）====="
