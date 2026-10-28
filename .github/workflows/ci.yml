@@ -29,6 +29,7 @@ jobs:
       - name: csv-to-inserts.py 自检
         run: |
           set -u
+          set +e   # GitHub Actions 默认 bash -e，但本测试故意验证非零退出码，需关闭
           S="$GITHUB_WORKSPACE/scripts/csv-to-inserts.py"
           mkdir -p /tmp/t && cd /tmp/t
           COLS='emp_no,name,dept,phone,status'
