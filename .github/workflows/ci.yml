@@ -244,6 +244,8 @@ jobs:
             echo "MYSQL_MIG_PASSWORD=$(openssl rand -base64 24)"
             echo "MYSQL_BAK_PASSWORD=$(openssl rand -base64 24)"
             echo "SMARTPARK_JWT_SECRET=$(openssl rand -base64 48)"
+            echo "SMARTPARK_CRYPTO_KEY=$(openssl rand -base64 32)"
+            echo "SMARTPARK_CRYPTO_HMAC_KEY=$(openssl rand -base64 32)"
           } >> .env
           chmod 600 .env
           bash scripts/init-secrets.sh
