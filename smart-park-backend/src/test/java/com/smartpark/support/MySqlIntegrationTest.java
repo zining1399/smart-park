@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Map;
 import java.util.UUID;
@@ -29,9 +30,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  *   MySQL → Flyway V1 自动建表 → 播种三个角色账号 → MockMvc 调用。
  *
  * 两种数据源：
- *  - CI（SPRING_DATASOURCE_URL 已注入）：直接连 GitHub service container 的 MySQL；
- *  - 本地（未注入）：启动 Testcontainers 的 MySQL 8 容器。
+ *  - CI（SMARTPARK_IT_DB_URL 已注入）：直接连 GitHub service container 的 MySQL；
+ *  - 本地（未注入）：启动 Testcontainers 的 MySQL 8 容器，无 Docker 时整类干净 skip
+ *    （@Testcontainers(disabledWithoutDocker)，不是 hard error），由 CI 守卫兜红。
+ *
+ * 注意：模式开关用专用变量 SMARTPARK_IT_DB_URL，不用官方 SPRING_DATASOURCE_URL——
+ * 否则有人本地设 SPRING_DATASOURCE_URL 指向开发库，测试会对其 DELETE sys_user。
  */
+@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK, properties = {
         "spring.profiles.active=test",
         "smartpark.security.jwt-secret=test-jwt-secret-0123456789abcdef0123456789abcdef",
@@ -46,15 +52,14 @@ public abstract class MySqlIntegrationTest {
 
     protected static final String TEST_PASSWORD = "Test@123456";
 
-    /** CI 模式：外部 MySQL（GitHub service container）已注入 SPRING_DATASOURCE_URL */
-    private static final boolean EXTERNAL_DB = System.getenv("SPRING_DATASOURCE_URL") != null;
+    /** CI 模式：外部 MySQL（GitHub service container）已注入专用 SMARTPARK_IT_DB_URL */
+    private static final boolean EXTERNAL_DB = System.getenv("SMARTPARK_IT_DB_URL") != null;
 
-    /** 本地模式：Testcontainers MySQL 8；CI 模式为 null */
-    private static final MySQLContainer<?> MYSQL;
-    static {
-        if (EXTERNAL_DB) {
-            MYSQL = null;
-        } else {
+    /** 本地模式：Testcontainers MySQL 8，懒启动（@DynamicPropertySource 时才 start）；CI 模式为 null */
+    private static MySQLContainer<?> MYSQL;
+
+    private static synchronized void ensureContainerStarted() {
+        if (MYSQL == null) {
             MYSQL = new MySQLContainer<>("mysql:8.0")
                     .withDatabaseName("smart_park")
                     .withUsername("test")
@@ -82,9 +87,14 @@ public abstract class MySqlIntegrationTest {
     @DynamicPropertySource
     static void datasourceProperties(DynamicPropertyRegistry registry) {
         if (EXTERNAL_DB) {
-            // CI 模式：SPRING_DATASOURCE_URL/USERNAME/PASSWORD 已由环境变量注入，不覆盖
+            // CI 模式：从专用 SMARTPARK_IT_DB_* 环境变量注入数据源
+            registry.add("spring.datasource.url", () -> System.getenv("SMARTPARK_IT_DB_URL"));
+            registry.add("spring.datasource.username", () -> System.getenv("SMARTPARK_IT_DB_USERNAME"));
+            registry.add("spring.datasource.password", () -> System.getenv("SMARTPARK_IT_DB_PASSWORD"));
+            registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
             return;
         }
+        ensureContainerStarted();
         registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);

@@ -99,11 +99,18 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
+          # 与生产 mysql/my.cnf、Testcontainers 路径同口径：缺了时区会让 CURRENT_TIMESTAMP
+          # 落 UTC（生产落 +08:00），时间边界类断言在 CI 上等于没验
+          --default-time-zone=+08:00
+          --character-set-server=utf8mb4
+          --collation-server=utf8mb4_0900_ai_ci
     env:
       # 集成测试直连 MySQL service container（不用 Testcontainers，避免 Docker 版本兼容问题）
-      SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/smart_park?connectionCollation=utf8mb4_0900_ai_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&useServerPrepStmts=false
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: root
+      # 用专用 SMARTPARK_IT_DB_* 变量，不用官方 SPRING_DATASOURCE_URL 当模式开关——
+      # 否则有人本地设了 SPRING_DATASOURCE_URL 指向开发库，测试会对其 DELETE sys_user
+      SMARTPARK_IT_DB_URL: jdbc:mysql://localhost:3306/smart_park?connectionCollation=utf8mb4_0900_ai_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&useServerPrepStmts=false
+      SMARTPARK_IT_DB_USERNAME: root
+      SMARTPARK_IT_DB_PASSWORD: root
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -114,11 +121,12 @@ jobs:
       - name: 编译 + 单元测试
         working-directory: smart-park-backend
         run: mvn -B clean verify
-      # 假绿守卫：集成用例基类是 @Testcontainers(disabledWithoutDocker = true)，runner 上
-      # Docker 不可用时整类被记为 skipped 而 mvn 退出码仍为 0，"BUILD SUCCESS" 里可能一条
-      # 集成用例都没跑 —— 鉴权矩阵 168 断言、CHECK 矩阵 40 断言、审计日志、账号禁用即时生效
-      # 全在这些类里，跳过即视为未验证，本 job 必须红（2026-10-27 归档表 DROP CHECK 缺陷
-      # 就是靠这条门禁才不会被静默带到交付）。判据与逐类白名单见脚本头部注释。
+      # 假绿守卫：逐类要求 4 个 P0 集成测试有**真实执行量**（判据与白名单见脚本头部注释）。
+      # CI 现在直连上面的 MySQL service container，不再走 Testcontainers，所以本守卫在 CI
+      # 拦的是这几类假绿：-DskipTests / surefire 报告缺失 / 测试类被改名或删掉 /
+      # @Disabled 悄悄增多。历史根因（2026-10-27）：归档表 DROP CHECK 缺陷之所以能一路
+      # 带到本地真连库才暴露，是因为 workflow 触发分支写错、集成用例整类被静默跳过，
+      # "BUILD SUCCESS" 里一条都没跑。
       - name: 集成用例不得被静默跳过（假绿守卫）
         run: bash scripts/check-surefire-no-skip.sh
       - uses: actions/upload-artifact@v4
